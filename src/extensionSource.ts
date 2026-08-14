@@ -14,9 +14,9 @@ export const MANIFEST_JSON = JSON.stringify(
       default_popup: "popup.html",
       default_title: "Gemini Form Autofill & Persona Hub",
       default_icon: {
-        "16": "icon16.png",
-        "48": "icon48.png",
-        "128": "icon128.png",
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png",
       },
     },
     background: {
@@ -31,9 +31,9 @@ export const MANIFEST_JSON = JSON.stringify(
       },
     ],
     icons: {
-      "16": "icon16.png",
-      "48": "icon48.png",
-      "128": "icon128.png",
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png",
     },
   },
   null,
