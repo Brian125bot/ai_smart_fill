@@ -190,6 +190,13 @@ function synthesizeProfileContext(profile: Record<string, any> | null | undefine
   return lines.join("\n");
 }
 
+const CONTEXT_GUARD_INSTRUCTION = [
+  "Only use facts explicitly present in the applicant profile or configured dashboard context.",
+  "The active webpage title, URL, headings, and field labels are routing metadata only, never applicant facts.",
+  "Do not guess, invent, or copy unrelated webpage or document text.",
+  "When the configured context does not support an answer, return an empty answer.",
+].join(" ");
+
 // In-memory cache for fast extension synchronization and context pairing
 interface SyncedUserContext {
   userId?: string;
@@ -464,7 +471,7 @@ async function startServer() {
         if (profileContextStr) {
           promptText += `${profileContextStr}\n\n`;
         }
-        promptText += `Based on the provided document and applicant profile, answer the following question accurately, concisely, and directly for a form field. Do not provide meta-analysis, code diagnoses, or error analysis essays. Output only the value for the field:\n\nQuestion: ${question}`;
+        promptText += `Use only the provided applicant profile and document as authoritative sources for the answer. Match the question to the relevant information in those sources; do not copy unrelated document text, and do not infer or invent facts. If the sources do not contain a supported answer, return an empty string. Answer concisely and directly for this form field. Do not provide meta-analysis, code diagnoses, or error analysis essays. Output only the value for the field:\n\nQuestion: ${question}`;
 
         contents = {
           parts: [
@@ -480,27 +487,28 @@ async function startServer() {
           ],
         };
       } else {
-        // Text Context or Profile Grounding or Question only
+        // Dashboard text context or profile grounding. Never treat arbitrary
+        // webpage text as applicant context.
         let promptText = "";
         if (profileContextStr) {
           promptText += `${profileContextStr}\n\n`;
         }
         if (context && context.type === "text" && context.data) {
-          promptText += `Context:\n${context.data}\n\n`;
+          promptText += `--- AUTHORITATIVE DASHBOARD CONTEXT ---\n${context.data}\n--- END AUTHORITATIVE DASHBOARD CONTEXT ---\n\n`;
         }
-        promptText += `Question:\n${question}`;
+        promptText += `Use only the profile and authoritative dashboard context above. If they do not support an answer to the question, return an empty string. Never invent details or use unrelated webpage content. Output only the concise value for this form field.\n\nQuestion:\n${question}`;
         contents = promptText;
       }
 
       // 4. Model configuration
-      const config: Record<string, any> = {};
-      if (
-        systemInstruction &&
-        typeof systemInstruction === "string" &&
-        systemInstruction.trim().length > 0
-      ) {
-        config.systemInstruction = systemInstruction.trim();
-      }
+      const config: Record<string, any> = {
+        systemInstruction: [
+          typeof systemInstruction === "string" ? systemInstruction.trim() : "",
+          CONTEXT_GUARD_INSTRUCTION,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      };
 
       // 5. Generate content using requested Gemini Model with robust retries & fallback
       let { text: answer, effectiveModel } = await generateWithRetryAndFallback(
@@ -635,10 +643,10 @@ async function startServer() {
       }
 
       if (context && context.type === "text" && context.data) {
-        promptText += `--- GROUNDING TEXT CONTEXT ---\n${context.data}\n------------------------------\n\n`;
+        promptText += `--- AUTHORITATIVE DASHBOARD CONTEXT ---\n${context.data}\n--- END AUTHORITATIVE DASHBOARD CONTEXT ---\n\n`;
       }
 
-      promptText += `Task: Fill out all the following web form fields accurately, professionally, and directly in first-person based on the applicant profile, attached documents, and webpage context.
+      promptText += `Task: Fill out the following web form fields using only the configured applicant profile and authoritative dashboard context (text or attached document). The active webpage metadata is provided only to help interpret which form is open; it is not a source of applicant facts. Match each field to the relevant configured context and leave the answer as an empty string when the configured context does not support it. Never guess, invent, or copy unrelated webpage text.
 
 Here are the target form fields to answer:
 ${JSON.stringify(fields, null, 2)}
@@ -657,7 +665,8 @@ Requirements:
 2. For select dropdowns or radio choices with 'options', the 'answer' MUST match one of the available options exactly or be the best logical choice.
 3. For phone numbers, emails, addresses, names, and URLs, format them cleanly according to standard conventions.
 4. Keep answers crisp and appropriate for form inputs. Do not wrap answers in conversational explanations.
-5. Return ONLY the valid JSON array without backticks or markdown fences.`;
+5. If a field is unrelated to or unsupported by the configured context, return an empty answer and confidence 0.
+6. Return ONLY the valid JSON array without backticks or markdown fences.`;
 
       let contents: any;
       if (context && context.type === "pdf" && context.data) {
@@ -682,6 +691,7 @@ Requirements:
 
       const config: Record<string, any> = {
         responseMimeType: "application/json",
+        systemInstruction: CONTEXT_GUARD_INSTRUCTION,
       };
 
       if (
@@ -689,7 +699,7 @@ Requirements:
         typeof systemInstruction === "string" &&
         systemInstruction.trim().length > 0
       ) {
-        config.systemInstruction = systemInstruction.trim();
+        config.systemInstruction = `${systemInstruction.trim()}\n\n${CONTEXT_GUARD_INSTRUCTION}`;
       }
 
       const { text: rawOutput, effectiveModel } = await generateWithRetryAndFallback(
