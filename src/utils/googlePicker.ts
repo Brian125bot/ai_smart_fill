@@ -33,7 +33,7 @@ export function loadGooglePickerApi(): Promise<void> {
     return gapiLoadedPromise;
   }
 
-  gapiLoadedPromise = new Promise<void>((resolve, reject) => {
+  const promise = new Promise<void>((resolve, reject) => {
     const checkGapi = () => {
       if (window.gapi) {
         window.gapi.load("picker", {
@@ -67,7 +67,20 @@ export function loadGooglePickerApi(): Promise<void> {
     checkGapi();
   });
 
-  return gapiLoadedPromise;
+  gapiLoadedPromise = promise;
+
+  // If loading fails, clear the cached promise so callers can retry later.
+  // Without this, every subsequent call returns the same rejected promise
+  // permanently and the user can never recover without reloading the page.
+  promise.catch(() => {
+    // Only clear if this same promise is still cached (i.e. no fresh
+    // successful load has replaced it). This keeps the door open for retry.
+    if (gapiLoadedPromise === promise) {
+      gapiLoadedPromise = null;
+    }
+  });
+
+  return promise;
 }
 
 export interface OpenPickerOptions {

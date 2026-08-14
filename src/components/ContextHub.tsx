@@ -215,6 +215,28 @@ interface ContextHubProps {
   onModelChange?: (modelId: string) => void;
 }
 
+/**
+ * Returns a deep copy of the profiles array with the heavy `pdfFile.base64`
+ * payload stripped out. This keeps persisted documents (Firestore + localStorage)
+ * within their respective size limits (Firestore = 1MB hard cap,
+ * localStorage = ~5-10MB). PDF metadata (name/size/mimeType) is preserved so
+ * the UI can still render the attached-file chip on reload.
+ */
+function stripPdfBase64FromProfiles(profiles: PersonaProfile[]): PersonaProfile[] {
+  return profiles.map((p) => {
+    if (!p.pdfFile) return p;
+    return {
+      ...p,
+      pdfFile: {
+        name: p.pdfFile.name,
+        size: p.pdfFile.size,
+        mimeType: p.pdfFile.mimeType,
+        base64: "", // stripped to respect storage limits
+      },
+    };
+  });
+}
+
 export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
@@ -232,6 +254,24 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const [activeProfileId, setActiveProfileId] = useState<string>("profile-cloud-lead");
   const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
   const [newProfileName, setNewProfileName] = useState<string>("");
+
+  // Unique per-browser pairing token for unauthenticated (local draft) users.
+  // Previously every signed-out user shared the literal "local-user-profile"
+  // token, so they could read each other's synced context. We now generate a
+  // stable random token per browser and persist it in localStorage so the
+  // Chrome extension can still re-pair with the same dashboard later.
+  const [localPairingToken] = useState<string>(() => {
+    try {
+      const existing = localStorage.getItem("gemini_local_pairing_token");
+      if (existing) return existing;
+      const token = `local-${crypto.randomUUID()}`;
+      localStorage.setItem("gemini_local_pairing_token", token);
+      return token;
+    } catch {
+      // Fallback if localStorage / crypto is unavailable (SSR / privacy mode)
+      return `local-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    }
+  });
 
   // Batch Form Testing State (Item 1)
   const [batchFormValues, setBatchFormValues] = useState<Record<string, string>>({});
@@ -336,21 +376,55 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const handleSaveConfig = async () => {
     setSaving(true);
     try {
-      // 1. Save to local storage for instant extension retrieval
+      // Compute the pairing token. Authenticated users use their Firebase UID;
+      // unauthenticated users use a unique per-browser token so they no longer
+      // share the same "local-user-profile" namespace (security fix #5).
+      const pairingToken = user ? user.uid : localPairingToken;
+
+      // ---- Fix #1: Firestore 1MB document limit & localStorage 5-10MB limit ----
+      // A 25MB PDF encodes to ~33MB of base64 text, which blows past both the
+      // Firestore 1MB hard document limit and the browser localStorage quota.
+      // We therefore strip the raw `base64` payload from anything persisted to
+      // Firestore / localStorage. The heavy PDF bytes are sent only to the
+      // backend in-memory cache (which has a 50mb express body limit) and kept
+      // in-memory for the current session. Metadata (name/size/mimeType) is
+      // still persisted so the UI can show the attached document on reload.
+      const profilesForPersistence = stripPdfBase64FromProfiles(profiles);
+      const activePdfMeta = activeProfile.pdfFile
+        ? {
+            pdfName: activeProfile.pdfFile.name,
+            pdfSize: activeProfile.pdfFile.size,
+            pdfMimeType: activeProfile.pdfFile.mimeType,
+          }
+        : { pdfName: null, pdfSize: null, pdfMimeType: null };
+
+      // 1. Save to local storage for instant extension retrieval.
+      // NOTE: base64 is intentionally omitted to stay within the 5-10MB quota.
       const payload = {
         activeProfileId,
-        profiles,
+        profiles: profilesForPersistence,
+        pairingToken,
         // Also provide top-level aliases for the active profile
         systemInstruction: activeProfile.systemInstruction,
         selectedModel: activeProfile.selectedModel,
         usePageContext: activeProfile.usePageContext,
         profileFields: activeProfile.profileFields,
         textContext: activeProfile.textContext,
-        pdfFile: activeProfile.pdfFile,
+        pdfFile: activeProfile.pdfFile
+          ? {
+              name: activeProfile.pdfFile.name,
+              size: activeProfile.pdfFile.size,
+              mimeType: activeProfile.pdfFile.mimeType,
+              // base64 deliberately omitted for localStorage
+            }
+          : null,
       };
       localStorage.setItem("gemini_dashboard_context_config", JSON.stringify(payload));
 
-      // 2. Sync to Firestore if authenticated
+      // 2. Sync to Firestore if authenticated.
+      // Firestore enforces a hard 1MB document limit, so the full base64 PDF
+      // is NEVER written here — only metadata. The in-memory backend cache
+      // (step 3) holds the bytes for the live extension session.
       if (user) {
         const userDocRef = doc(db, "users", user.uid);
         await setDoc(
@@ -361,30 +435,32 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
             displayName: user.displayName || "",
             photoURL: user.photoURL || "",
             activeProfileId,
-            profiles,
+            profiles: profilesForPersistence,
             // Mirror current active profile at top level for backward compat
             systemInstruction: activeProfile.systemInstruction,
             selectedModel: activeProfile.selectedModel,
             usePageContext: activeProfile.usePageContext,
             profileFields: activeProfile.profileFields,
             textContext: activeProfile.textContext || "",
-            pdfName: activeProfile.pdfFile?.name || null,
-            pdfSize: activeProfile.pdfFile?.size || null,
-            pdfMimeType: activeProfile.pdfFile?.mimeType || null,
-            pdfData: activeProfile.pdfFile?.base64 || null,
+            pdfName: activePdfMeta.pdfName,
+            pdfSize: activePdfMeta.pdfSize,
+            pdfMimeType: activePdfMeta.pdfMimeType,
+            pdfData: null, // never store multi-MB base64 in a Firestore doc
             updatedAt: serverTimestamp(),
           },
           { merge: true }
         );
       }
 
-      // 3. Sync to backend API cache for instant Chrome Extension pairing & autofill
+      // 3. Sync to backend API cache for instant Chrome Extension pairing & autofill.
+      // The backend allows large bodies (50mb) and keeps data in memory, so it
+      // is the only sink that receives the full base64 PDF for this session.
       try {
         await fetch("/api/syncProfile", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            pairingToken: user ? user.uid : "local-user-profile",
+            pairingToken,
             userId: user?.uid || null,
             email: user?.email || null,
             displayName: user?.displayName || null,
@@ -585,10 +661,24 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   };
 
   const handleCopyPairingToken = () => {
-    const token = user ? user.uid : "local-user-profile";
+    const token = user ? user.uid : localPairingToken;
     navigator.clipboard.writeText(token);
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
+  };
+
+  // Wrap the Google sign-in popup in a loading state so the button shows a
+  // spinner and is disabled during the OAuth flow. Previously `authLoading`
+  // was declared but never toggled, leaving the button clickable mid-sign-in.
+  const handleGoogleSignIn = async () => {
+    setAuthLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (err: any) {
+      console.error("Sign-in error:", err);
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleCopyEndpoint = () => {
@@ -747,12 +837,16 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               </div>
             ) : (
               <button
-                onClick={() => signInWithPopup(auth, googleProvider)}
+                onClick={handleGoogleSignIn}
                 disabled={authLoading}
                 className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium shadow-md transition disabled:opacity-50"
               >
-                <LogIn className="w-4 h-4 text-blue-400" />
-                <span>Sign in with Google to Sync Cloud</span>
+                {authLoading ? (
+                  <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+                ) : (
+                  <LogIn className="w-4 h-4 text-blue-400" />
+                )}
+                <span>{authLoading ? "Signing in..." : "Sign in with Google to Sync Cloud"}</span>
               </button>
             )}
 
@@ -1471,9 +1565,13 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                 {AVAILABLE_GEMINI_MODELS.map((m) => (
                   <div
                     key={m.id}
-                    onClick={() =>
-                      updateActiveProfile((p) => ({ ...p, selectedModel: m.id }))
-                    }
+                    onClick={() => {
+                      updateActiveProfile((p) => ({ ...p, selectedModel: m.id }));
+                      // Fix #9: propagate the model selection to the parent
+                      // header immediately so the displayed model is not stale
+                      // until the user manually clicks "Save & Sync".
+                      if (onModelChange) onModelChange(m.id);
+                    }}
                     className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
                       activeProfile.selectedModel === m.id
                         ? "bg-blue-600/15 border-blue-500 ring-1 ring-blue-500"
