@@ -464,7 +464,7 @@ async function startServer() {
         if (profileContextStr) {
           promptText += `${profileContextStr}\n\n`;
         }
-        promptText += `Based on the provided document and applicant profile, answer the following question accurately, concisely, and directly for a form field:\n\nQuestion: ${question}`;
+        promptText += `Based on the provided document and applicant profile, answer the following question accurately, concisely, and directly for a form field. Do not provide meta-analysis, code diagnoses, or error analysis essays. Output only the value for the field:\n\nQuestion: ${question}`;
 
         contents = {
           parts: [
@@ -503,12 +503,23 @@ async function startServer() {
       }
 
       // 5. Generate content using requested Gemini Model with robust retries & fallback
-      const { text: answer, effectiveModel } = await generateWithRetryAndFallback(
+      let { text: answer, effectiveModel } = await generateWithRetryAndFallback(
         ai,
         requestedModel,
         contents,
         config
       );
+
+      // Clean out any technical diagnostic essays
+      const lower = (answer || "").toLowerCase();
+      if (
+        lower.includes("failed to execute 'fetch'") ||
+        lower.includes("non iso-8859-1") ||
+        lower.includes("based on the error message and context") ||
+        lower.includes("### the error")
+      ) {
+        answer = "";
+      }
 
       res.status(200).json({
         answer,
@@ -698,6 +709,23 @@ Requirements:
         parsedAnswers = JSON.parse(cleaned);
         if (!Array.isArray(parsedAnswers) && typeof parsedAnswers === "object" && Array.isArray((parsedAnswers as any).answers)) {
           parsedAnswers = (parsedAnswers as any).answers;
+        }
+
+        // Sanitize every field answer to avoid diagnostic error essays
+        if (Array.isArray(parsedAnswers)) {
+          parsedAnswers = parsedAnswers.map((ans) => {
+            const val = typeof ans?.answer === "string" ? ans.answer : "";
+            const lower = val.toLowerCase();
+            if (
+              lower.includes("failed to execute 'fetch'") ||
+              lower.includes("non iso-8859-1") ||
+              lower.includes("based on the error message and context") ||
+              lower.includes("### the error")
+            ) {
+              return { ...ans, answer: "" };
+            }
+            return ans;
+          });
         }
       } catch (jsonErr) {
         console.warn("JSON parse fallback in /batchAnswerForm:", jsonErr);

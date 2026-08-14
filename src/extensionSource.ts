@@ -8,7 +8,7 @@ export const MANIFEST_JSON = JSON.stringify(
     version: "2.0.0",
     description:
       "AI-powered multi-persona form autofill extension with instant batch completion powered by Gemini 3.7 & Cloud Run.",
-    permissions: ["storage", "activeTab", "scripting"],
+    permissions: ["storage", "unlimitedStorage", "activeTab", "scripting"],
     host_permissions: ["<all_urls>"],
     action: {
       default_popup: "popup.html",
@@ -266,13 +266,20 @@ export const POPUP_HTML = `<!DOCTYPE html>
       </button>
     </footer>
 
-    <!-- Direct Trigger Button -->
+    <!-- Direct Trigger & Stop Buttons -->
     <div class="trigger-container">
       <button type="button" id="triggerAutofillBtn" class="btn btn-trigger">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </svg>
         <span>⚡ Fast Batch AutoFill Active Tab</span>
+      </button>
+
+      <button type="button" id="stopAutofillBtn" class="btn btn-stop hidden">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+          <rect width="18" height="18" x="3" y="3" rx="2"/>
+        </svg>
+        <span>⏹ Stop Autofilling</span>
       </button>
     </div>
 
@@ -633,12 +640,18 @@ input:checked + .slider:before {
   padding: 10px;
   text-align: center;
   cursor: pointer;
-  transition: border-color 0.2s, background-color 0.2s;
+  transition: border-color 0.2s, background-color 0.2s, transform 0.15s ease;
 }
 
 .pdf-upload-box:hover {
   border-color: var(--border-focus);
   background-color: rgba(37, 99, 235, 0.05);
+}
+
+.pdf-upload-box.dragover {
+  border-color: #3b82f6;
+  background-color: rgba(59, 130, 246, 0.15);
+  transform: scale(1.01);
 }
 
 .hidden-file-input {
@@ -764,6 +777,26 @@ input:checked + .slider:before {
   transform: translateY(-1px);
 }
 
+.btn-stop {
+  width: 100%;
+  padding: 10px;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.btn-stop:hover {
+  background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+  transform: translateY(-1px);
+}
+
+.btn-stop:active {
+  transform: translateY(0);
+}
+
 /* Toast */
 .toast {
   padding: 8px 12px;
@@ -810,10 +843,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   const testBtn = document.getElementById("testBtn");
   const saveBtn = document.getElementById("saveBtn");
   const triggerAutofillBtn = document.getElementById("triggerAutofillBtn");
+  const stopAutofillBtn = document.getElementById("stopAutofillBtn");
   const statusBadge = document.getElementById("statusBadge");
   const toast = document.getElementById("popupToast");
 
   let currentProfiles = [];
+
+  function sanitizeHeaderValue(val) {
+    if (!val || typeof val !== "string") return "";
+    return val.trim().replace(/[^\x20-\x7E]/g, "");
+  }
 
   function updateSyncBadge(profile, docName, email, count) {
     if (email) {
@@ -1071,6 +1110,81 @@ document.addEventListener("DOMContentLoaded", async () => {
     pdfActiveState.classList.add("hidden");
     pdfFileInput.value = "";
     chrome.storage.local.remove(["pdfData", "pdfName", "pdfSize", "pdfMimeType"]);
+
+    if (Array.isArray(currentProfiles) && currentProfiles.length > 0) {
+      const activeId = personaSelect ? personaSelect.value : null;
+      const target = currentProfiles.find((p) => p.id === activeId) || currentProfiles[0];
+      if (target) {
+        target.pdfFile = null;
+        chrome.storage.local.set({ profiles: currentProfiles });
+      }
+    }
+  }
+
+  // Robust PDF file processor supporting file picker and drag-and-drop
+  function processPdfFile(file) {
+    if (!file) return;
+
+    const isPdf =
+      (file.type && file.type.toLowerCase().includes("pdf")) ||
+      (file.name && file.name.toLowerCase().endsWith(".pdf"));
+
+    if (!isPdf) {
+      showToast("Please select a valid PDF document (.pdf).", true);
+      return;
+    }
+
+    // 25MB check
+    if (file.size > 25 * 1024 * 1024) {
+      showToast("PDF exceeds the 25MB limit. Please choose a smaller document.", true);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const resStr = String(reader.result || "");
+        const base64Data = resStr.includes(",") ? resStr.split(",")[1] : resStr;
+        const mimeType = file.type || "application/pdf";
+
+        const toSave = {
+          pdfData: base64Data,
+          pdfName: file.name,
+          pdfSize: file.size,
+          pdfMimeType: mimeType,
+        };
+
+        // Also associate with active profile if multi-persona is active
+        if (Array.isArray(currentProfiles) && currentProfiles.length > 0) {
+          const activeId = personaSelect ? personaSelect.value : null;
+          const target = currentProfiles.find((p) => p.id === activeId) || currentProfiles[0];
+          if (target) {
+            target.pdfFile = {
+              name: file.name,
+              size: file.size,
+              mimeType: mimeType,
+              base64: base64Data,
+            };
+            toSave.profiles = currentProfiles;
+          }
+        }
+
+        chrome.storage.local.set(toSave, () => {
+          showPdfAttached(file.name, file.size);
+          updateSyncBadge(null, file.name);
+          showToast("✓ PDF resume attached successfully!");
+        });
+      } catch (err) {
+        console.error("PDF processing error:", err);
+        showToast("Error attaching PDF: " + (err.message || err), true);
+      }
+    };
+
+    reader.onerror = () => {
+      showToast("Failed to read the selected PDF file.", true);
+    };
+
+    reader.readAsDataURL(file);
   }
 
   // Model select change handler
@@ -1092,35 +1206,47 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // PDF Upload Handlers
+  // PDF Upload Click Handler
   pdfUploadBox.addEventListener("click", (e) => {
     if (e.target !== removePdfBtn && !removePdfBtn.contains(e.target)) {
       pdfFileInput.click();
     }
   });
 
+  // PDF File Input Change Handler
   pdfFileInput.addEventListener("change", () => {
-    const file = pdfFileInput.files[0];
-    if (!file) return;
-
-    if (file.type !== "application/pdf") {
-      showToast("Please select a valid PDF document.", true);
-      return;
+    const file = pdfFileInput.files && pdfFileInput.files[0];
+    if (file) {
+      processPdfFile(file);
     }
+  });
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64Data = reader.result.split(",")[1];
-      chrome.storage.local.set({
-        pdfData: base64Data,
-        pdfName: file.name,
-        pdfSize: file.size,
-        pdfMimeType: file.type,
-      });
-      showPdfAttached(file.name, file.size);
-      showToast("PDF attached successfully!");
-    };
-    reader.readAsDataURL(file);
+  // PDF Drag & Drop Handlers
+  pdfUploadBox.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pdfUploadBox.classList.add("dragover");
+  });
+
+  pdfUploadBox.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pdfUploadBox.classList.add("dragover");
+  });
+
+  pdfUploadBox.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pdfUploadBox.classList.remove("dragover");
+  });
+
+  pdfUploadBox.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    pdfUploadBox.classList.remove("dragover");
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processPdfFile(e.dataTransfer.files[0]);
+    }
   });
 
   removePdfBtn.addEventListener("click", (e) => {
@@ -1215,11 +1341,59 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    triggerAutofillBtn.classList.add("hidden");
+    if (stopAutofillBtn) stopAutofillBtn.classList.remove("hidden");
+    statusBadge.textContent = "Filling...";
+    statusBadge.className = "status-badge status-idle";
+
     try {
       await chrome.tabs.sendMessage(tab.id, { action: "triggerBatchAutofill" });
-      window.close();
+      showToast("⚡ Autofill started on active tab!");
     } catch (err) {
+      triggerAutofillBtn.classList.remove("hidden");
+      if (stopAutofillBtn) stopAutofillBtn.classList.add("hidden");
+      statusBadge.textContent = "Ready";
       showToast("Could not trigger on this page. Try refreshing the tab.", true);
+    }
+  });
+
+  // Stop Autofill Handler
+  if (stopAutofillBtn) {
+    stopAutofillBtn.addEventListener("click", async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab && tab.id) {
+        try {
+          await chrome.tabs.sendMessage(tab.id, { action: "stopAutofill" });
+        } catch (e) {}
+      }
+      try {
+        await chrome.runtime.sendMessage({ action: "stopAutofill" });
+      } catch (e) {}
+
+      triggerAutofillBtn.classList.remove("hidden");
+      stopAutofillBtn.classList.add("hidden");
+      statusBadge.textContent = "Stopped";
+      statusBadge.className = "status-badge status-error";
+      showToast("⏹ Form filling stopped.");
+      setTimeout(() => {
+        statusBadge.textContent = "Ready";
+        statusBadge.className = "status-badge status-idle";
+      }, 2000);
+    });
+  }
+
+  // Listen for completion / stop broadcasts
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "autofillFinished" || msg.action === "autofillStopped") {
+      triggerAutofillBtn.classList.remove("hidden");
+      if (stopAutofillBtn) stopAutofillBtn.classList.add("hidden");
+      if (msg.action === "autofillStopped") {
+        statusBadge.textContent = "Stopped";
+        statusBadge.className = "status-badge status-error";
+      } else {
+        statusBadge.textContent = "Ready";
+        statusBadge.className = "status-badge status-idle";
+      }
     }
   });
 });
@@ -1277,9 +1451,9 @@ async function handleBatchAnswerForm(payload) {
   // Derive /batchAnswerForm URL if /answerQuestion was specified
   let batchUrl = backendUrl;
   if (batchUrl.endsWith("/answerQuestion")) {
-    batchUrl = batchUrl.replace(/\\/answerQuestion$/, "/batchAnswerForm");
+    batchUrl = batchUrl.replace(/\/answerQuestion$/, "/batchAnswerForm");
   } else if (!batchUrl.endsWith("/batchAnswerForm")) {
-    const origin = batchUrl.replace(/\\/[^\\/]*$/, "");
+    const origin = batchUrl.replace(/\/[^/]*$/, "");
     batchUrl = origin + "/batchAnswerForm";
   }
 
@@ -1357,7 +1531,7 @@ async function handleAnswerQuestion(payload) {
 
   let singleUrl = backendUrl;
   if (singleUrl.endsWith("/batchAnswerForm")) {
-    singleUrl = singleUrl.replace(/\\/batchAnswerForm$/, "/answerQuestion");
+    singleUrl = singleUrl.replace(/\/batchAnswerForm$/, "/answerQuestion");
   }
 
   const headers = {
@@ -1423,7 +1597,7 @@ async function handleTestEndpoint(payload) {
 
   let testUrl = endpointUrl;
   if (testUrl.endsWith("/batchAnswerForm")) {
-    testUrl = testUrl.replace(/\\/batchAnswerForm$/, "/answerQuestion");
+    testUrl = testUrl.replace(/\/batchAnswerForm$/, "/answerQuestion");
   }
 
   const response = await fetch(testUrl, {
@@ -1462,21 +1636,19 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
     container.id = "gemini-autofill-fab-container";
     container.className = "gemini-fab-container";
 
-    container.innerHTML = \`
-      <div id="gemini-autofill-fab" class="gemini-fab" title="Fast Batch Autofill with Gemini AI">
-        <div class="gemini-fab-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-          </svg>
-        </div>
-        <span class="gemini-fab-label">⚡ Fast Batch Fill</span>
-      </div>
-
-      <div id="gemini-autofill-status-pill" class="gemini-status-pill gemini-hidden">
-        <div class="gemini-spinner"></div>
-        <span id="gemini-status-text">Batch reasoning form fields...</span>
-      </div>
-    \`;
+    container.innerHTML =
+      '<div id="gemini-autofill-fab" class="gemini-fab" title="Fast Batch Autofill with Gemini AI">' +
+      '  <div class="gemini-fab-icon">' +
+      '    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+      '      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>' +
+      '    </svg>' +
+      '  </div>' +
+      '  <span class="gemini-fab-label">⚡ Fast Batch Fill</span>' +
+      '</div>' +
+      '<div id="gemini-autofill-status-pill" class="gemini-status-pill gemini-hidden">' +
+      '  <div class="gemini-spinner"></div>' +
+      '  <span id="gemini-status-text">Batch reasoning form fields...</span>' +
+      '</div>';
 
     document.body.appendChild(container);
 
@@ -1498,7 +1670,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
   // 3. Question extraction heuristics for a given field
   function extractQuestionForField(field) {
     if (field.id) {
-      const label = document.querySelector(\`label[for="\${field.id}"]\`);
+      const label = document.querySelector('label[for="' + field.id + '"]');
       if (label && label.innerText.trim()) {
         return label.innerText.trim();
       }
@@ -1638,8 +1810,8 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
           mimeType: storage.pdfMimeType || "application/pdf",
         };
       } else if (storage.usePageContext !== false) {
-        const selection = window.getSelection()?.toString()?.trim();
-        const pageText = selection || document.body.innerText?.slice(0, 20000) || "";
+        const selection = window.getSelection() ? window.getSelection().toString().trim() : "";
+        const pageText = selection || (document.body.innerText ? document.body.innerText.slice(0, 20000) : "");
         if (pageText) {
           context = { type: "text", data: pageText };
         }
@@ -1682,7 +1854,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         const latencyStr = response.timeMs ? " (" + (response.timeMs / 1000).toFixed(1) + "s)" : "";
         showToastNotification("⚡ Successfully batch filled " + filledCount + " of " + batchFields.length + " fields" + latencyStr + "!");
       } else {
-        throw new Error(response?.error || "Batch generation did not return answers.");
+        throw new Error(response && response.error ? response.error : "Batch generation did not return answers.");
       }
     } catch (err) {
       console.error("Gemini Batch Autofill error:", err);
@@ -1721,7 +1893,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
   }
 
   // 7. Toast Notifications in Page
-  function showToastNotification(message, isError = false) {
+  function showToastNotification(message, isError) {
     let toast = document.getElementById("gemini-autofill-page-toast");
     if (!toast) {
       toast = document.createElement("div");

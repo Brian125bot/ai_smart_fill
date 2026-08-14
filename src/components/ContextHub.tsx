@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Sparkles,
   FileText,
@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Clock,
   ExternalLink,
+  Square,
 } from "lucide-react";
 import {
   auth,
@@ -238,6 +239,7 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchLatency, setBatchLatency] = useState<number | null>(null);
   const [batchModelUsed, setBatchModelUsed] = useState<string | null>(null);
+  const batchAbortControllerRef = useRef<AbortController | null>(null);
 
   // Active Profile Pointer
   const activeProfile =
@@ -477,9 +479,22 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     setRenamingProfileId(null);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const [isDraggingPdf, setIsDraggingPdf] = useState(false);
+
+  const processPdfFileObject = (file: File) => {
+    const isPdf =
+      (file.type && file.type.toLowerCase().includes("pdf")) ||
+      (file.name && file.name.toLowerCase().endsWith(".pdf"));
+
+    if (!isPdf) {
+      alert("Please select or drop a valid PDF document (.pdf).");
+      return;
+    }
+
+    if (file.size > 25 * 1024 * 1024) {
+      alert("PDF exceeds the 25MB limit. Please choose a smaller document.");
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
@@ -494,7 +509,18 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         },
       }));
     };
+    reader.onerror = () => {
+      alert("Failed to read PDF file.");
+    };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processPdfFileObject(file);
+    // Reset file input value so the same file can be re-selected if needed
+    e.target.value = "";
   };
 
   const handleDrivePicked = (file: PickedFileResult | null) => {
@@ -571,8 +597,14 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     setTimeout(() => setCopiedEndpoint(false), 2000);
   };
 
-  // Item 1: Run full batch fill on sample form
+  // Item 1: Run full batch fill on sample form with abort/stop support
   const handleExecuteBatchTest = async () => {
+    if (batchAbortControllerRef.current) {
+      batchAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    batchAbortControllerRef.current = controller;
+
     setBatchLoading(true);
     setBatchLatency(null);
     try {
@@ -581,6 +613,7 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         headers: {
           "Content-Type": "application/json",
         },
+        signal: controller.signal,
         body: JSON.stringify({
           fields: SAMPLE_BATCH_FORM,
           pageContext: {
@@ -622,14 +655,31 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         alert(data.error || "Batch generation failed");
       }
     } catch (err: any) {
-      console.error("Batch autofill test error:", err);
-      alert(err.message || "Failed to execute batch test");
+      if (err.name === "AbortError") {
+        console.log("Batch fill test cancelled by user.");
+      } else {
+        console.error("Batch autofill test error:", err);
+        alert(err.message || "Failed to execute batch test");
+      }
     } finally {
+      batchAbortControllerRef.current = null;
       setBatchLoading(false);
     }
   };
 
+  const handleStopBatchTest = () => {
+    if (batchAbortControllerRef.current) {
+      batchAbortControllerRef.current.abort();
+      batchAbortControllerRef.current = null;
+    }
+    setBatchLoading(false);
+  };
+
   const handleResetBatchForm = () => {
+    if (batchAbortControllerRef.current) {
+      batchAbortControllerRef.current.abort();
+      batchAbortControllerRef.current = null;
+    }
     setBatchFormValues({});
     setBatchAnswersMetadata({});
     setBatchLatency(null);
@@ -931,18 +981,23 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                   <span>Clear Form</span>
                 </button>
 
-                <button
-                  onClick={handleExecuteBatchTest}
-                  disabled={batchLoading}
-                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-                >
-                  {batchLoading ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
+                {batchLoading ? (
+                  <button
+                    onClick={handleStopBatchTest}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop Autofill</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleExecuteBatchTest}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  >
                     <Play className="w-4 h-4 fill-white" />
-                  )}
-                  <span>{batchLoading ? "Autofilling 12 Fields..." : "Fill All 12 Fields in 1 Request"}</span>
-                </button>
+                    <span>Fill All 12 Fields in 1 Request</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1478,7 +1533,37 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               </div>
 
               {/* PDF Drop / Upload Zone */}
-              <div className="border-2 border-dashed border-slate-800 hover:border-slate-700 rounded-3xl p-6 text-center space-y-4 bg-slate-950/60 transition">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingPdf(true);
+                }}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingPdf(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingPdf(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingPdf(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) {
+                    processPdfFileObject(file);
+                  }
+                }}
+                className={`border-2 border-dashed rounded-3xl p-6 text-center space-y-4 transition ${
+                  isDraggingPdf
+                    ? "border-blue-500 bg-blue-950/40 ring-2 ring-blue-500/30"
+                    : "border-slate-800 hover:border-slate-700 bg-slate-950/60"
+                }`}
+              >
                 {activeProfile.pdfFile ? (
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center">
