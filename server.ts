@@ -190,6 +190,28 @@ function synthesizeProfileContext(profile: Record<string, any> | null | undefine
   return lines.join("\n");
 }
 
+// In-memory cache for fast extension synchronization and context pairing
+interface SyncedUserContext {
+  userId?: string;
+  pairingToken: string;
+  email?: string;
+  displayName?: string;
+  profiles?: any[];
+  activeProfileId?: string;
+  systemInstruction?: string;
+  selectedModel?: string;
+  usePageContext?: boolean;
+  userProfile?: Record<string, any>;
+  pdfData?: string | null;
+  pdfName?: string | null;
+  pdfSize?: number | null;
+  pdfMimeType?: string | null;
+  textContext?: string | null;
+  updatedAt: string;
+}
+
+const userContextStore = new Map<string, SyncedUserContext>();
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -234,6 +256,132 @@ async function startServer() {
   });
 
   // ==========================================
+  // Dashboard & Extension Sync Endpoints
+  // ==========================================
+
+  // Save/publish dashboard user context to backend sync cache
+  app.post("/api/syncProfile", (req: Request, res: Response): void => {
+    try {
+      const body = req.body;
+      const pairingToken = (body.pairingToken || body.userId || body.uid || body.email || "").trim();
+
+      if (!pairingToken) {
+        res.status(400).json({
+          success: false,
+          error: "Missing pairingToken or userId identifier for synchronization.",
+        });
+        return;
+      }
+
+      const activeProfile = Array.isArray(body.profiles) && body.activeProfileId
+        ? body.profiles.find((p: any) => p.id === body.activeProfileId) || body.profiles[0]
+        : null;
+
+      const syncedContext: SyncedUserContext = {
+        userId: body.userId || body.uid || pairingToken,
+        pairingToken: pairingToken,
+        email: body.email || "",
+        displayName: body.displayName || "",
+        profiles: Array.isArray(body.profiles) ? body.profiles : [],
+        activeProfileId: body.activeProfileId || (activeProfile ? activeProfile.id : "profile-default"),
+        systemInstruction: body.systemInstruction || activeProfile?.systemInstruction || "",
+        selectedModel: body.selectedModel || activeProfile?.selectedModel || DEFAULT_GEMINI_MODEL,
+        usePageContext: typeof body.usePageContext === "boolean" ? body.usePageContext : true,
+        userProfile: body.profileFields || body.userProfile || activeProfile?.profileFields || {},
+        pdfData: body.pdfData || activeProfile?.pdfFile?.base64 || null,
+        pdfName: body.pdfName || activeProfile?.pdfFile?.name || null,
+        pdfSize: body.pdfSize || activeProfile?.pdfFile?.size || null,
+        pdfMimeType: body.pdfMimeType || activeProfile?.pdfFile?.mimeType || "application/pdf",
+        textContext: body.textContext || activeProfile?.textContext || null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Store in memory under pairingToken and userId and email if available
+      userContextStore.set(pairingToken, syncedContext);
+      if (body.userId && body.userId !== pairingToken) {
+        userContextStore.set(body.userId, syncedContext);
+      }
+      if (body.email && body.email !== pairingToken) {
+        userContextStore.set(body.email.toLowerCase().trim(), syncedContext);
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "User context successfully synced with backend cache.",
+        pairingToken: pairingToken,
+        profilesCount: syncedContext.profiles?.length || 1,
+        activeProfileId: syncedContext.activeProfileId,
+        updatedAt: syncedContext.updatedAt,
+      });
+    } catch (err: any) {
+      console.error("Error in /api/syncProfile:", err);
+      res.status(500).json({
+        success: false,
+        error: err?.message || "Failed to sync profile context.",
+      });
+    }
+  });
+
+  // Retrieve user context by pairingToken / UID / email for the Chrome Extension
+  app.get("/api/userContext/:token", (req: Request, res: Response): void => {
+    try {
+      const token = decodeURIComponent(req.params.token || "").trim();
+      if (!token) {
+        res.status(400).json({ success: false, error: "Pairing token parameter is required." });
+        return;
+      }
+
+      const cached = userContextStore.get(token) || userContextStore.get(token.toLowerCase());
+      if (cached) {
+        res.status(200).json({
+          success: true,
+          source: "server_cache",
+          context: cached,
+        });
+        return;
+      }
+
+      // If not in cache, respond gracefully
+      res.status(404).json({
+        success: false,
+        error: `No synced context found for pairing token "${token}". Make sure to click "Save & Sync Context" on the web dashboard first.`,
+      });
+    } catch (err: any) {
+      console.error("Error in /api/userContext:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to fetch user context." });
+    }
+  });
+
+  // POST endpoint for extension sync (also accepts token in body or query)
+  app.post("/api/userContext", (req: Request, res: Response): void => {
+    try {
+      const token = (req.body?.pairingToken || req.body?.userId || req.body?.email || req.query?.token || "").toString().trim();
+      if (!token) {
+        res.status(400).json({ success: false, error: "Pairing token or userId is required." });
+        return;
+      }
+
+      const cached = userContextStore.get(token) || userContextStore.get(token.toLowerCase());
+      if (cached) {
+        res.status(200).json({
+          success: true,
+          source: "server_cache",
+          context: cached,
+        });
+        return;
+      }
+
+      res.status(404).json({
+        success: false,
+        error: `No synced context found for token "${token}". Please save your settings in the web dashboard first.`,
+      });
+    } catch (err: any) {
+      console.error("Error in POST /api/userContext:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to fetch user context." });
+    }
+  });
+
+  // ==========================================
   // POST /answerQuestion Endpoint
   // ==========================================
   app.post("/answerQuestion", async (req: Request, res: Response): Promise<void> => {
@@ -267,15 +415,40 @@ async function startServer() {
       }
 
       const question = body.question.trim();
-      const context = body.context;
-      const systemInstruction = body.systemInstruction;
-      const userProfile = body.userProfile;
-      const profileContextStr = synthesizeProfileContext(userProfile);
-
-      const requestedModel =
+      const pairingToken = (body.pairingToken || body.userId || "").trim();
+      
+      let context = body.context;
+      let systemInstruction = body.systemInstruction;
+      let userProfile = body.userProfile;
+      let requestedModel =
         body.model && typeof body.model === "string" && body.model.trim()
           ? body.model.trim()
-          : DEFAULT_GEMINI_MODEL;
+          : null;
+
+      // Check server sync cache if pairingToken is supplied and context/profile is not explicitly in payload
+      if (pairingToken) {
+        const cached = userContextStore.get(pairingToken) || userContextStore.get(pairingToken.toLowerCase());
+        if (cached) {
+          if (!userProfile) userProfile = cached.userProfile;
+          if (!systemInstruction) systemInstruction = cached.systemInstruction;
+          if (!requestedModel) requestedModel = cached.selectedModel || null;
+          if (!context && cached.pdfData) {
+            context = {
+              type: "pdf",
+              data: cached.pdfData,
+              mimeType: cached.pdfMimeType || "application/pdf",
+            };
+          } else if (!context && cached.textContext) {
+            context = {
+              type: "text",
+              data: cached.textContext,
+            };
+          }
+        }
+      }
+
+      if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
+      const profileContextStr = synthesizeProfileContext(userProfile);
 
       const ai = getGeminiClient();
 
@@ -397,16 +570,40 @@ async function startServer() {
         maxLength?: number;
       }> = body.fields;
 
-      const context = body.context;
-      const systemInstruction = body.systemInstruction;
-      const userProfile = body.userProfile;
-      const profileContextStr = synthesizeProfileContext(userProfile);
-      const pageContext = body.pageContext;
-
-      const requestedModel =
+      const pairingToken = (body.pairingToken || body.userId || "").trim();
+      let context = body.context;
+      let systemInstruction = body.systemInstruction;
+      let userProfile = body.userProfile;
+      let requestedModel =
         body.model && typeof body.model === "string" && body.model.trim()
           ? body.model.trim()
-          : DEFAULT_GEMINI_MODEL;
+          : null;
+
+      // Check server sync cache if pairingToken is supplied and context/profile is not explicitly in payload
+      if (pairingToken) {
+        const cached = userContextStore.get(pairingToken) || userContextStore.get(pairingToken.toLowerCase());
+        if (cached) {
+          if (!userProfile) userProfile = cached.userProfile;
+          if (!systemInstruction) systemInstruction = cached.systemInstruction;
+          if (!requestedModel) requestedModel = cached.selectedModel || null;
+          if (!context && cached.pdfData) {
+            context = {
+              type: "pdf",
+              data: cached.pdfData,
+              mimeType: cached.pdfMimeType || "application/pdf",
+            };
+          } else if (!context && cached.textContext) {
+            context = {
+              type: "text",
+              data: cached.textContext,
+            };
+          }
+        }
+      }
+
+      if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
+      const profileContextStr = synthesizeProfileContext(userProfile);
+      const pageContext = body.pageContext;
 
       const ai = getGeminiClient();
 

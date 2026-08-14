@@ -60,15 +60,15 @@ export const POPUP_HTML = `<!DOCTYPE html>
         </div>
         <div>
           <h1 class="title">Gemini Form Autofill</h1>
-          <p class="subtitle">Cloud Run & Batch Grounding</p>
+          <p class="subtitle">Cloud Sync & Persona Grounding</p>
         </div>
       </div>
       <div id="statusBadge" class="status-badge status-idle">Ready</div>
     </header>
 
-    <!-- Configuration Form -->
+    <!-- Main Content -->
     <main class="content">
-      <!-- Item 2: Multi-Persona Selection Card -->
+      <!-- Item: Dashboard Authentication & Persona Sync Card -->
       <div class="dashboard-sync-card">
         <div class="sync-card-header">
           <div class="sync-card-title">
@@ -78,35 +78,39 @@ export const POPUP_HTML = `<!DOCTYPE html>
               <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
               <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
-            <span>Active Persona Profile</span>
+            <span>Dashboard Sync & Auth</span>
           </div>
-          <button type="button" id="syncFromDashboardBtn" class="sync-btn" title="Sync personas from web dashboard">
+          <button type="button" id="syncFromDashboardBtn" class="sync-btn" title="Fetch latest personas, Q&As, and PDF from Dashboard">
             <svg id="syncIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
               <path d="M3 3v5h5"/>
               <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
               <path d="M16 21h5v-5"/>
             </svg>
-            <span>Sync Hub</span>
+            <span id="syncBtnText">Sync Dashboard</span>
           </button>
         </div>
 
-        <div class="form-group" style="margin-top: 6px;">
-          <select id="personaSelect" class="input-control" style="font-weight: 600; color: #93c5fd;">
-            <option value="default">💼 Tech Lead & Cloud Architect (Default)</option>
-          </select>
-        </div>
-
+        <!-- Token / UID input -->
         <div class="form-group" style="margin-top: 4px;">
           <input 
             type="text" 
             id="pairingToken" 
             class="input-control" 
-            placeholder="Pairing ID / UID (from dashboard)"
-            style="font-size: 11px; padding: 5px 8px;"
+            placeholder="Account UID / Email / Pairing Key (from Dashboard)"
+            style="font-size: 11px; padding: 6px 9px;"
           />
         </div>
 
+        <!-- Persona selection dropdown -->
+        <div class="form-group" style="margin-top: 2px;">
+          <label class="field-label" style="font-size: 10px; color: #94a3b8;">Active Persona Grounding</label>
+          <select id="personaSelect" class="input-control" style="font-weight: 600; color: #93c5fd; font-size: 11px;">
+            <option value="default">💼 Tech Lead & Cloud Architect (Default)</option>
+          </select>
+        </div>
+
+        <!-- Real-time Synced Context Badge -->
         <div id="syncStatusBadge" class="sync-status-badge">
           <span>Ready to sync with web dashboard</span>
         </div>
@@ -126,7 +130,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
           autocomplete="off"
           spellcheck="false"
         />
-        <p class="help-text">Cloud Run endpoint (supports /batchAnswerForm or /answerQuestion).</p>
+        <p class="help-text">Dashboard / Cloud Run endpoint (e.g. /batchAnswerForm).</p>
       </div>
 
       <!-- Bearer Token -->
@@ -151,7 +155,6 @@ export const POPUP_HTML = `<!DOCTYPE html>
             </svg>
           </button>
         </div>
-        <p class="help-text">Sent in Authorization: Bearer header.</p>
       </div>
 
       <!-- Gemini Model Selection -->
@@ -250,7 +253,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
         </svg>
-        <span>Test Connection</span>
+        <span>Test API</span>
       </button>
 
       <button type="button" id="saveBtn" class="btn btn-primary">
@@ -259,7 +262,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
           <polyline points="17 21 17 13 7 13 7 21"/>
           <polyline points="7 3 7 8 15 8"/>
         </svg>
-        <span>Save Settings</span>
+        <span>Save Local</span>
       </button>
     </footer>
 
@@ -812,11 +815,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   let currentProfiles = [];
 
-  function updateSyncBadge(profile, docName) {
-    if (profile && profile.fullName) {
-      syncStatusBadge.innerHTML = \`<strong style="color: #34d399;">✓ Persona:</strong> \${profile.fullName} (\${profile.jobTitle || "Profile"})\`;
+  function updateSyncBadge(profile, docName, email, count) {
+    if (email) {
+      syncStatusBadge.innerHTML = '<strong style="color: #34d399;">✓ Synced:</strong> ' + email + ' (' + (count || 1) + ' Personas)';
+    } else if (profile && profile.fullName) {
+      syncStatusBadge.innerHTML = '<strong style="color: #34d399;">✓ Persona:</strong> ' + profile.fullName + ' (' + (profile.jobTitle || "Profile") + ')';
     } else if (docName) {
-      syncStatusBadge.innerHTML = \`<strong style="color: #34d399;">✓ Document Synced:</strong> \${docName}\`;
+      syncStatusBadge.innerHTML = '<strong style="color: #34d399;">✓ Document Synced:</strong> ' + docName;
     } else {
       syncStatusBadge.textContent = "Ready to sync with web dashboard";
     }
@@ -832,6 +837,102 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (p.id === activeId) opt.selected = true;
       personaSelect.appendChild(opt);
     });
+  }
+
+  // Real dashboard context sync function
+  async function performDashboardSync(pairingVal, endpoint) {
+    if (!pairingVal) {
+      showToast("Please enter an Account UID or Pairing Key from Dashboard.", true);
+      pairingTokenInput.focus();
+      return;
+    }
+
+    let baseUrl = "";
+    if (endpoint) {
+      try {
+        const u = new URL(endpoint);
+        baseUrl = u.origin;
+      } catch {
+        baseUrl = "";
+      }
+    }
+    if (!baseUrl) {
+      baseUrl = window.location.origin.startsWith("http") ? window.location.origin : "http://localhost:3000";
+    }
+
+    const syncBtnText = document.getElementById("syncBtnText");
+    if (syncBtnText) syncBtnText.textContent = "Syncing...";
+    syncStatusBadge.innerHTML = '<span style="color: #60a5fa;">Fetching cloud persona & documents...</span>';
+
+    try {
+      const resp = await fetch(baseUrl + "/api/userContext/" + encodeURIComponent(pairingVal));
+      const data = await resp.json();
+
+      if (!resp.ok || !data.success || !data.context) {
+        throw new Error(data.error || "No persona profiles synced for this Account UID yet. Save in Dashboard first!");
+      }
+
+      const ctx = data.context;
+      currentProfiles = Array.isArray(ctx.profiles) && ctx.profiles.length > 0 ? ctx.profiles : [];
+
+      const activeId = ctx.activeProfileId || (currentProfiles[0] ? currentProfiles[0].id : "default");
+      renderPersonaDropdown(currentProfiles, activeId);
+
+      const activeProfile = currentProfiles.find((p) => p.id === activeId) || currentProfiles[0] || null;
+
+      // Update UI inputs
+      if (ctx.systemInstruction) systemInstructionInput.value = ctx.systemInstruction;
+      if (ctx.selectedModel) {
+        const std = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.0-flash"];
+        if (std.includes(ctx.selectedModel)) {
+          modelSelect.value = ctx.selectedModel;
+          customModelInput.classList.add("hidden");
+        } else {
+          modelSelect.value = "custom";
+          customModelInput.value = ctx.selectedModel;
+          customModelInput.classList.remove("hidden");
+        }
+      }
+
+      if (ctx.pdfData && ctx.pdfName) {
+        showPdfAttached(ctx.pdfName, ctx.pdfSize || 0);
+      }
+
+      // Save to chrome.storage.local
+      const toSave = {
+        pairingToken: pairingVal,
+        syncedEmail: ctx.email || "",
+        syncedName: ctx.displayName || "",
+        syncedUserId: ctx.userId || pairingVal,
+        profiles: currentProfiles,
+        activeProfileId: activeId,
+        userProfile: ctx.userProfile || (activeProfile ? activeProfile.profileFields : null),
+        systemInstruction: ctx.systemInstruction || (activeProfile ? activeProfile.systemInstruction : ""),
+        selectedModel: ctx.selectedModel || (activeProfile ? activeProfile.selectedModel : "gemini-3.7-flash"),
+        pdfData: ctx.pdfData || (activeProfile?.pdfFile?.base64 || null),
+        pdfName: ctx.pdfName || (activeProfile?.pdfFile?.name || null),
+        pdfSize: ctx.pdfSize || (activeProfile?.pdfFile?.size || null),
+        pdfMimeType: ctx.pdfMimeType || (activeProfile?.pdfFile?.mimeType || "application/pdf"),
+        usePageContext: ctx.usePageContext !== false,
+      };
+
+      await new Promise((resolve) => chrome.storage.local.set(toSave, resolve));
+
+      updateSyncBadge(toSave.userProfile, toSave.pdfName, ctx.email || ctx.displayName, currentProfiles.length);
+      showToast("✓ Synced " + currentProfiles.length + " personas from Dashboard!");
+      statusBadge.textContent = "Synced";
+      statusBadge.className = "status-badge status-success";
+      setTimeout(() => {
+        statusBadge.textContent = "Ready";
+        statusBadge.className = "status-badge status-idle";
+      }, 2500);
+    } catch (err) {
+      console.error("Dashboard sync error:", err);
+      syncStatusBadge.innerHTML = '<span style="color: #f87171;">Sync notice: ' + (err.message || err) + '</span>';
+      showToast(err.message || "Sync failed", true);
+    } finally {
+      if (syncBtnText) syncBtnText.textContent = "Sync Dashboard";
+    }
   }
 
   // 1. Load saved configuration from chrome.storage.local
@@ -851,6 +952,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       "pdfName",
       "pdfSize",
       "pdfMimeType",
+      "syncedEmail",
+      "syncedName",
     ],
     (result) => {
       if (result.backendUrl) backendUrlInput.value = result.backendUrl;
@@ -862,7 +965,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderPersonaDropdown(currentProfiles, result.activeProfileId);
       }
 
-      updateSyncBadge(result.userProfile, result.pdfName);
+      updateSyncBadge(result.userProfile, result.pdfName, result.syncedEmail || result.syncedName, currentProfiles.length);
 
       const savedModel = result.selectedModel || "gemini-3.7-flash";
       const standardModels = [
@@ -888,6 +991,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (result.pdfData && result.pdfName) {
         showPdfAttached(result.pdfName, result.pdfSize || 0);
       }
+
+      // If user is configured with pairingToken, perform seamless background sync
+      if (result.pairingToken && result.backendUrl) {
+        performDashboardSync(result.pairingToken, result.backendUrl);
+      }
     }
   );
 
@@ -897,7 +1005,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     const found = currentProfiles.find((p) => p.id === selectedId);
     if (found) {
       if (found.systemInstruction) systemInstructionInput.value = found.systemInstruction;
-      if (found.selectedModel) modelSelect.value = found.selectedModel;
+      if (found.selectedModel) {
+        const std = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.0-flash"];
+        if (std.includes(found.selectedModel)) {
+          modelSelect.value = found.selectedModel;
+          customModelInput.classList.add("hidden");
+        } else {
+          modelSelect.value = "custom";
+          customModelInput.value = found.selectedModel;
+          customModelInput.classList.remove("hidden");
+        }
+      }
       if (found.pdfFile && found.pdfFile.base64) {
         showPdfAttached(found.pdfFile.name, found.pdfFile.size);
         chrome.storage.local.set({
@@ -908,6 +1026,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           pdfData: found.pdfFile.base64,
           pdfMimeType: found.pdfFile.mimeType,
           systemInstruction: found.systemInstruction,
+          selectedModel: found.selectedModel || "gemini-3.7-flash",
         });
       } else {
         clearPdf();
@@ -915,6 +1034,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           activeProfileId: selectedId,
           userProfile: found.profileFields,
           systemInstruction: found.systemInstruction,
+          selectedModel: found.selectedModel || "gemini-3.7-flash",
         });
       }
       updateSyncBadge(found.profileFields, found.pdfFile?.name);
@@ -925,9 +1045,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Sync button handler
   syncFromDashboardBtn.addEventListener("click", async () => {
     const pairingVal = pairingTokenInput.value.trim();
-    showToast("Dashboard persona synced!");
-    syncStatusBadge.innerHTML = '<span style="color: #60a5fa;">✓ Synced with Dashboard</span>';
-    chrome.storage.local.set({ pairingToken: pairingVal });
+    const endpoint = backendUrlInput.value.trim();
+    await performDashboardSync(pairingVal, endpoint);
   });
 
   // Helper: show toast message
@@ -1142,6 +1261,9 @@ async function handleBatchAnswerForm(payload) {
     "pairingToken",
     "userProfile",
     "selectedModel",
+    "pdfData",
+    "pdfMimeType",
+    "systemInstruction",
   ]);
 
   let backendUrl = storage.backendUrl ? storage.backendUrl.trim() : "";
@@ -1169,12 +1291,21 @@ async function handleBatchAnswerForm(payload) {
     headers["Authorization"] = "Bearer " + bearerToken;
   }
 
+  let context = payload.context;
+  if (!context && storage.pdfData) {
+    context = {
+      type: "pdf",
+      data: storage.pdfData,
+      mimeType: storage.pdfMimeType || "application/pdf",
+    };
+  }
+
   const requestBody = {
     fields: payload.fields,
     pageContext: payload.pageContext || null,
     model: model,
-    context: payload.context || null,
-    systemInstruction: payload.systemInstruction || null,
+    context: context || null,
+    systemInstruction: payload.systemInstruction || storage.systemInstruction || null,
     pairingToken: storage.pairingToken || null,
     userProfile: payload.userProfile || storage.userProfile || null,
   };
@@ -1212,6 +1343,9 @@ async function handleAnswerQuestion(payload) {
     "pairingToken",
     "userProfile",
     "selectedModel",
+    "pdfData",
+    "pdfMimeType",
+    "systemInstruction",
   ]);
   const backendUrl = storage.backendUrl ? storage.backendUrl.trim() : "";
   const bearerToken = storage.bearerToken ? storage.bearerToken.trim() : "";
@@ -1234,11 +1368,20 @@ async function handleAnswerQuestion(payload) {
     headers["Authorization"] = "Bearer " + bearerToken;
   }
 
+  let context = payload.context;
+  if (!context && storage.pdfData) {
+    context = {
+      type: "pdf",
+      data: storage.pdfData,
+      mimeType: storage.pdfMimeType || "application/pdf",
+    };
+  }
+
   const requestBody = {
     question: payload.question,
     model: model,
-    context: payload.context || null,
-    systemInstruction: payload.systemInstruction || null,
+    context: context || null,
+    systemInstruction: payload.systemInstruction || storage.systemInstruction || null,
     pairingToken: storage.pairingToken || null,
     userProfile: payload.userProfile || storage.userProfile || null,
   };

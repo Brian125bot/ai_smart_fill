@@ -376,6 +376,33 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         );
       }
 
+      // 3. Sync to backend API cache for instant Chrome Extension pairing & autofill
+      try {
+        await fetch("/api/syncProfile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pairingToken: user ? user.uid : "local-user-profile",
+            userId: user?.uid || null,
+            email: user?.email || null,
+            displayName: user?.displayName || null,
+            profiles,
+            activeProfileId,
+            profileFields: activeProfile.profileFields,
+            systemInstruction: activeProfile.systemInstruction,
+            selectedModel: activeProfile.selectedModel,
+            usePageContext: activeProfile.usePageContext,
+            pdfData: activeProfile.pdfFile?.base64 || null,
+            pdfName: activeProfile.pdfFile?.name || null,
+            pdfSize: activeProfile.pdfFile?.size || null,
+            pdfMimeType: activeProfile.pdfFile?.mimeType || null,
+            textContext: activeProfile.textContext || null,
+          }),
+        });
+      } catch (syncErr) {
+        console.warn("Backend cache sync notice:", syncErr);
+      }
+
       if (onModelChange) {
         onModelChange(activeProfile.selectedModel);
       }
