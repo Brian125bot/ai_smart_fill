@@ -68,7 +68,7 @@ export function ExtensionViewer() {
               <span>Zero-Leak Security</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              No API keys or sensitive secrets are embedded in the extension files. All Gemini calls route through your Cloud Run proxy with Bearer authentication.
+              No API keys or sensitive secrets are embedded in the extension files. All Gemini calls route through your local server-side proxy.
             </p>
           </div>
 

@@ -7,7 +7,7 @@ export const MANIFEST_JSON = JSON.stringify(
     name: "Gemini Form Autofill & Assistant",
     version: "2.0.0",
     description:
-      "AI-powered multi-persona form autofill extension with instant batch completion powered by Gemini 3.7 & Cloud Run.",
+      "AI-powered multi-persona form autofill extension with instant batch completion powered by Gemini 3.7 via a local server proxy.",
     permissions: ["storage", "unlimitedStorage", "activeTab", "scripting"],
     host_permissions: ["<all_urls>"],
     action: {
@@ -130,31 +130,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
           autocomplete="off"
           spellcheck="false"
         />
-        <p class="help-text">Dashboard / Cloud Run endpoint (e.g. /batchAnswerForm).</p>
-      </div>
-
-      <!-- Bearer Token -->
-      <div class="form-group">
-        <label for="bearerToken" class="field-label">
-          <span>Bearer Token</span>
-          <span class="optional">(if auth enabled)</span>
-        </label>
-        <div class="input-with-action">
-          <input 
-            type="password" 
-            id="bearerToken" 
-            class="input-control" 
-            placeholder="Static AUTH_BEARER_TOKEN"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <button type="button" id="toggleTokenVisibility" class="icon-button" title="Toggle visibility">
-            <svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
-          </button>
-        </div>
+        <p class="help-text">Dashboard / local server endpoint (e.g. http://localhost:3000/batchAnswerForm).</p>
       </div>
 
       <!-- Gemini Model Selection -->
@@ -821,12 +797,10 @@ input:checked + .slider:before {
 export const POPUP_JS = `// Gemini Form Autofill - Popup Script (Manifest V3)
 document.addEventListener("DOMContentLoaded", async () => {
   const backendUrlInput = document.getElementById("backendUrl");
-  const bearerTokenInput = document.getElementById("bearerToken");
   const personaSelect = document.getElementById("personaSelect");
   const pairingTokenInput = document.getElementById("pairingToken");
   const syncFromDashboardBtn = document.getElementById("syncFromDashboardBtn");
   const syncStatusBadge = document.getElementById("syncStatusBadge");
-  const toggleTokenBtn = document.getElementById("toggleTokenVisibility");
   const modelSelect = document.getElementById("modelSelect");
   const customModelInput = document.getElementById("customModelInput");
   const usePageContextCheckbox = document.getElementById("usePageContext");
@@ -978,7 +952,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.storage.local.get(
     [
       "backendUrl",
-      "bearerToken",
       "pairingToken",
       "profiles",
       "activeProfileId",
@@ -996,7 +969,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     ],
     (result) => {
       if (result.backendUrl) backendUrlInput.value = result.backendUrl;
-      if (result.bearerToken) bearerTokenInput.value = result.bearerToken;
       if (result.pairingToken) pairingTokenInput.value = result.pairingToken;
 
       currentProfiles = Array.isArray(result.profiles) ? result.profiles : [];
@@ -1197,15 +1169,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Toggle token visibility
-  toggleTokenBtn.addEventListener("click", () => {
-    if (bearerTokenInput.type === "password") {
-      bearerTokenInput.type = "text";
-    } else {
-      bearerTokenInput.type = "password";
-    }
-  });
-
   // PDF Upload Click Handler
   pdfUploadBox.addEventListener("click", (e) => {
     if (e.target !== removePdfBtn && !removePdfBtn.contains(e.target)) {
@@ -1258,7 +1221,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Save Settings Handler
   saveBtn.addEventListener("click", () => {
     const backendUrl = backendUrlInput.value.trim();
-    const bearerToken = bearerTokenInput.value.trim();
     const selectedModel =
       modelSelect.value === "custom"
         ? customModelInput.value.trim() || "gemini-3.7-flash"
@@ -1276,7 +1238,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     chrome.storage.local.set(
       {
         backendUrl,
-        bearerToken,
         pairingToken,
         selectedModel,
         usePageContext,
@@ -1297,7 +1258,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Test Connection Handler
   testBtn.addEventListener("click", async () => {
     const endpointUrl = backendUrlInput.value.trim();
-    const bearerToken = bearerTokenInput.value.trim();
     const model =
       modelSelect.value === "custom"
         ? customModelInput.value.trim() || "gemini-3.7-flash"
@@ -1315,7 +1275,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       const response = await chrome.runtime.sendMessage({
         action: "testEndpoint",
         endpointUrl,
-        bearerToken,
         model,
       });
 
@@ -1425,13 +1384,37 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
+ * Resolve a user-supplied backend URL to a specific endpoint path.
+ * Handles bare origins, sibling endpoint swaps, and full URLs alike.
+ */
+function toEndpoint(base, path) {
+  const trimmed = (base || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.endsWith(path)) return trimmed;
+  const sibling = path === "/batchAnswerForm" ? "/answerQuestion" : "/batchAnswerForm";
+  if (trimmed.endsWith(sibling)) {
+    return trimmed.slice(0, -sibling.length) + path;
+  }
+  try {
+    const u = new URL(trimmed);
+    u.pathname = path;
+    u.search = "";
+    u.hash = "";
+    return u.toString();
+  } catch (e) {
+    const lastSlash = trimmed.lastIndexOf("/");
+    const origin = lastSlash > 8 ? trimmed.slice(0, lastSlash) : trimmed;
+    return origin + path;
+  }
+}
+
+/**
  * Item 1: High-Performance Batch Form Completion
  * Calls POST /batchAnswerForm with all fields in a single HTTP request.
  */
 async function handleBatchAnswerForm(payload) {
   const storage = await chrome.storage.local.get([
     "backendUrl",
-    "bearerToken",
     "pairingToken",
     "userProfile",
     "selectedModel",
@@ -1441,7 +1424,6 @@ async function handleBatchAnswerForm(payload) {
   ]);
 
   let backendUrl = storage.backendUrl ? storage.backendUrl.trim() : "";
-  const bearerToken = storage.bearerToken ? storage.bearerToken.trim() : "";
   const model = payload.model || storage.selectedModel || "gemini-3.7-flash";
 
   if (!backendUrl) {
@@ -1449,21 +1431,11 @@ async function handleBatchAnswerForm(payload) {
   }
 
   // Derive /batchAnswerForm URL if /answerQuestion was specified
-  let batchUrl = backendUrl;
-  if (batchUrl.endsWith("/answerQuestion")) {
-    batchUrl = batchUrl.replace(/\/answerQuestion$/, "/batchAnswerForm");
-  } else if (!batchUrl.endsWith("/batchAnswerForm")) {
-    const origin = batchUrl.replace(/\/[^/]*$/, "");
-    batchUrl = origin + "/batchAnswerForm";
-  }
+  const batchUrl = toEndpoint(backendUrl, "/batchAnswerForm");
 
   const headers = {
     "Content-Type": "application/json",
   };
-
-  if (bearerToken) {
-    headers["Authorization"] = "Bearer " + bearerToken;
-  }
 
   let context = payload.context;
   if (!context && storage.pdfData) {
@@ -1513,7 +1485,6 @@ async function handleBatchAnswerForm(payload) {
 async function handleAnswerQuestion(payload) {
   const storage = await chrome.storage.local.get([
     "backendUrl",
-    "bearerToken",
     "pairingToken",
     "userProfile",
     "selectedModel",
@@ -1522,25 +1493,17 @@ async function handleAnswerQuestion(payload) {
     "systemInstruction",
   ]);
   const backendUrl = storage.backendUrl ? storage.backendUrl.trim() : "";
-  const bearerToken = storage.bearerToken ? storage.bearerToken.trim() : "";
   const model = payload.model || storage.selectedModel || "gemini-3.7-flash";
 
   if (!backendUrl) {
     throw new Error("Backend Endpoint URL is not configured in the Gemini Extension popup.");
   }
 
-  let singleUrl = backendUrl;
-  if (singleUrl.endsWith("/batchAnswerForm")) {
-    singleUrl = singleUrl.replace(/\/batchAnswerForm$/, "/answerQuestion");
-  }
+  const singleUrl = toEndpoint(backendUrl, "/answerQuestion");
 
   const headers = {
     "Content-Type": "application/json",
   };
-
-  if (bearerToken) {
-    headers["Authorization"] = "Bearer " + bearerToken;
-  }
 
   let context = payload.context;
   if (!context && storage.pdfData) {
@@ -1586,19 +1549,12 @@ async function handleAnswerQuestion(payload) {
  * Tests connection with a minimal test question.
  */
 async function handleTestEndpoint(payload) {
-  const { endpointUrl, bearerToken, model } = payload;
+  const { endpointUrl, model } = payload;
   const headers = {
     "Content-Type": "application/json",
   };
 
-  if (bearerToken) {
-    headers["Authorization"] = "Bearer " + bearerToken;
-  }
-
-  let testUrl = endpointUrl;
-  if (testUrl.endsWith("/batchAnswerForm")) {
-    testUrl = testUrl.replace(/\/batchAnswerForm$/, "/answerQuestion");
-  }
+  const testUrl = toEndpoint(endpointUrl, "/answerQuestion");
 
   const response = await fetch(testUrl, {
     method: "POST",
@@ -1627,6 +1583,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
   window.__geminiAutofillInjected = true;
 
   let isAutofilling = false;
+  let stopRequested = false;
 
   // 1. Create Floating Trigger Widget
   function createFloatingTrigger() {
@@ -1664,15 +1621,22 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "triggerBatchAutofill" || msg.action === "triggerAutofill") {
       if (!isAutofilling) startBatchFormAutofill();
+    } else if (msg.action === "stopAutofill") {
+      stopRequested = true;
     }
   });
 
   // 3. Question extraction heuristics for a given field
   function extractQuestionForField(field) {
     if (field.id) {
-      const label = document.querySelector('label[for="' + field.id + '"]');
-      if (label && label.innerText.trim()) {
-        return label.innerText.trim();
+      try {
+        const escapedId = CSS.escape ? CSS.escape(field.id) : field.id;
+        const label = document.querySelector('label[for="' + escapedId + '"]');
+        if (label && label.innerText.trim()) {
+          return label.innerText.trim();
+        }
+      } catch (e) {
+        // Invalid id for a CSS selector; fall through to other heuristics
       }
     }
 
@@ -1745,6 +1709,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
   // 5. Item 1: High-Speed Batch Form Autofill (Single Request)
   async function startBatchFormAutofill() {
     isAutofilling = true;
+    stopRequested = false;
     const fab = document.getElementById("gemini-autofill-fab");
     const statusPill = document.getElementById("gemini-autofill-status-pill");
     const statusText = document.getElementById("gemini-status-text");
@@ -1755,7 +1720,6 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
     try {
       const storage = await chrome.storage.local.get([
         "backendUrl",
-        "bearerToken",
         "pairingToken",
         "userProfile",
         "selectedModel",
@@ -1777,8 +1741,19 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
       }
 
       // Assign temporary field identifiers and prepare batch request payload
+      const usedIds = new Set();
       const batchFields = rawElements.map((el, idx) => {
-        const id = el.id || el.name || "gemini_field_" + idx;
+        let id = el.id || el.name || "gemini_field_" + idx;
+        if (usedIds.has(id)) {
+          let uniqueId = id + "_" + idx;
+          let counter = idx;
+          while (usedIds.has(uniqueId)) {
+            counter++;
+            uniqueId = id + "_" + counter;
+          }
+          id = uniqueId;
+        }
+        usedIds.add(id);
         el.dataset.geminiFieldId = id;
 
         const options =
@@ -1839,6 +1814,11 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         userProfile: storage.userProfile || null,
       });
 
+      if (stopRequested) {
+        showToastNotification("⏹ Autofill stopped before answers were applied.");
+        return;
+      }
+
       if (response && response.success && Array.isArray(response.answers)) {
         let filledCount = 0;
         response.answers.forEach((ans) => {
@@ -1871,18 +1851,13 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
     if (field.isContentEditable) {
       field.innerText = answer;
     } else if (field.tagName.toLowerCase() === "select") {
-      let matched = false;
       const lower = answer.toLowerCase().trim();
       for (let i = 0; i < field.options.length; i++) {
         const opt = field.options[i];
         if (opt.text.toLowerCase().includes(lower) || opt.value.toLowerCase().includes(lower)) {
           field.selectedIndex = i;
-          matched = true;
           break;
         }
-      }
-      if (!matched && field.options.length > 1) {
-        field.selectedIndex = 1;
       }
     } else {
       field.value = answer;
@@ -2079,7 +2054,7 @@ export const EXTENSION_FILES: ExtensionFile[] = [
     path: "background.js",
     type: "javascript",
     language: "javascript",
-    description: "Manifest V3 Service Worker proxying /batchAnswerForm and /answerQuestion calls with Bearer authentication.",
+    description: "Manifest V3 Service Worker proxying /batchAnswerForm and /answerQuestion calls to the local backend.",
     content: BACKGROUND_JS,
   },
   {

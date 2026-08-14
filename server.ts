@@ -80,11 +80,12 @@ export function getGeminiClient(): GoogleGenAI {
 }
 
 // Helper function to execute Gemini requests with retry and automatic fallback for 503 / 429 errors
-async function generateWithRetryAndFallback(
+export async function generateWithRetryAndFallback(
   ai: GoogleGenAI,
   requestedModel: string,
   contents: any,
-  config: Record<string, any>
+  config: Record<string, any>,
+  backoffMs?: (attempt: number) => number
 ): Promise<{ text: string; effectiveModel: string }> {
   // Build a model candidate chain starting with requestedModel, then fallback alternatives
   const candidateModels = [
@@ -121,9 +122,14 @@ async function generateWithRetryAndFallback(
           errMsg.includes("UNAVAILABLE") ||
           errMsg.includes("429") ||
           errMsg.includes("RESOURCE_EXHAUSTED") ||
+          errMsg.includes("NOT_FOUND") ||
+          errMsg.includes("404") ||
+          errMsg.toLowerCase().includes("not found") ||
           errStatus === 503 ||
           errStatus === 429 ||
-          errStatus === "UNAVAILABLE";
+          errStatus === 404 ||
+          errStatus === "UNAVAILABLE" ||
+          errStatus === "NOT_FOUND";
 
         if (!isTransient) {
           // Non-transient errors (e.g. invalid arguments) should not be retried blindly
@@ -136,7 +142,9 @@ async function generateWithRetryAndFallback(
 
         if (attempt < 3) {
           // Jittered backoff: 400ms * attempt + random jitter
-          const delay = attempt * 400 + Math.floor(Math.random() * 200);
+          const delay = backoffMs
+            ? backoffMs(attempt)
+            : attempt * 400 + Math.floor(Math.random() * 200);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
       }
@@ -162,7 +170,7 @@ interface AnswerQuestionRequest {
 }
 
 // Helper to synthesize structured user profile into a crisp AI grounding block
-function synthesizeProfileContext(profile: Record<string, any> | null | undefined): string {
+export function synthesizeProfileContext(profile: Record<string, any> | null | undefined): string {
   if (!profile || Object.keys(profile).length === 0) return "";
   const lines: string[] = ["--- APPLICANT / USER PROFILE GROUNDING ---"];
   if (profile.fullName) lines.push(`Name: ${profile.fullName}`);
@@ -212,21 +220,38 @@ interface SyncedUserContext {
 
 const userContextStore = new Map<string, SyncedUserContext>();
 
-async function startServer() {
+export interface CreateAppOptions {
+  aiClient?: GoogleGenAI;
+  serveStatic?: boolean;
+}
+
+export async function createApp(options: CreateAppOptions = {}): Promise<express.Express> {
   const app = express();
-  const PORT = 3000;
+  const ai = options.aiClient || getGeminiClient();
 
   // Increase payload limit for base64 PDF uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // CORS middleware to allow Chrome extension and web clients to access the API
+  // CORS middleware to allow the Chrome extension and local web clients to access the API.
+  // Reflects the origin only when it is a local/dev or browser-extension origin, so that
+  // arbitrary third-party websites cannot read responses from this local proxy.
   app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin || "";
+    const isAllowedOrigin =
+      !origin ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      /^chrome-extension:\/\//.test(origin) ||
+      /^moz-extension:\/\//.test(origin);
+
+    if (isAllowedOrigin) {
+      res.setHeader("Access-Control-Allow-Origin", origin || "*");
+      res.setHeader("Vary", "Origin");
+    }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization"
+      "Origin, X-Requested-With, Content-Type, Accept"
     );
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
@@ -241,8 +266,8 @@ async function startServer() {
       status: "ok",
       model: DEFAULT_GEMINI_MODEL,
       supportedModels: SUPPORTED_GEMINI_MODELS.map((m) => m.id),
-      authRequired: Boolean(process.env.AUTH_BEARER_TOKEN),
       appUrl: process.env.APP_URL || null,
+      apiKeyConfigured: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim()),
       timestamp: new Date().toISOString(),
     });
   });
@@ -386,26 +411,7 @@ async function startServer() {
   // ==========================================
   app.post("/answerQuestion", async (req: Request, res: Response): Promise<void> => {
     try {
-      // 1. Bearer Token Authentication check
-      const expectedToken = process.env.AUTH_BEARER_TOKEN?.trim();
-      if (expectedToken) {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          res.status(401).json({
-            error: "Unauthorized: Missing or invalid Authorization Bearer header.",
-          });
-          return;
-        }
-        const token = authHeader.substring(7).trim();
-        if (token !== expectedToken) {
-          res.status(401).json({
-            error: "Unauthorized: Invalid Bearer token.",
-          });
-          return;
-        }
-      }
-
-      // 2. Validate request payload
+      // 1. Validate request payload
       const body = req.body as AnswerQuestionRequest;
       if (!body || typeof body.question !== "string" || !body.question.trim()) {
         res.status(400).json({
@@ -449,8 +455,6 @@ async function startServer() {
 
       if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const profileContextStr = synthesizeProfileContext(userProfile);
-
-      const ai = getGeminiClient();
 
       // 3. Build contents based on context type and profile grounding
       let contents: any;
@@ -540,28 +544,7 @@ async function startServer() {
   app.post("/batchAnswerForm", async (req: Request, res: Response): Promise<void> => {
     const startTime = Date.now();
     try {
-      // 1. Bearer Token Authentication check
-      const expectedToken = process.env.AUTH_BEARER_TOKEN?.trim();
-      if (expectedToken) {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith("Bearer ")) {
-          res.status(401).json({
-            success: false,
-            error: "Unauthorized: Missing or invalid Authorization Bearer header.",
-          });
-          return;
-        }
-        const token = authHeader.substring(7).trim();
-        if (token !== expectedToken) {
-          res.status(401).json({
-            success: false,
-            error: "Unauthorized: Invalid Bearer token.",
-          });
-          return;
-        }
-      }
-
-      // 2. Validate request payload
+      // 1. Validate request payload
       const body = req.body;
       if (!body || !Array.isArray(body.fields) || body.fields.length === 0) {
         res.status(400).json({
@@ -615,8 +598,6 @@ async function startServer() {
       if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const profileContextStr = synthesizeProfileContext(userProfile);
       const pageContext = body.pageContext;
-
-      const ai = getGeminiClient();
 
       // Build structured batch instructions
       let promptText = "";
@@ -728,15 +709,10 @@ Requirements:
           });
         }
       } catch (jsonErr) {
-        console.warn("JSON parse fallback in /batchAnswerForm:", jsonErr);
-        // Resilient fallback: map fields to raw output or empty answers
-        parsedAnswers = fields.map((f) => ({
-          id: f.id,
-          question: f.question,
-          answer: "",
-          confidence: 0,
-          reasoning: "Parse error in batch generation",
-        }));
+        console.warn("JSON parse error in /batchAnswerForm:", jsonErr);
+        throw new Error(
+          "Gemini returned unparseable structured output: " + (rawOutput || "").slice(0, 200)
+        );
       }
 
       const timeMs = Date.now() - startTime;
@@ -758,24 +734,40 @@ Requirements:
     }
   });
 
-  // Vite middleware setup
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+  // Vite middleware / static file serving (skipped when serveStatic is false, e.g. in tests)
+  if (options.serveStatic !== false) {
+    if (process.env.NODE_ENV !== "production") {
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } else {
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (_req: Request, res: Response) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  return app;
+}
+
+async function startServer() {
+  const app = await createApp({ serveStatic: true });
+  const PORT = 3000;
+  const HOST = process.env.HOST || "127.0.0.1";
+  app.listen(PORT, HOST, () => {
+    console.log(`Server running on http://${HOST}:${PORT}`);
   });
 }
 
-startServer();
+// Start the server only when this module is run directly (not when imported by tests).
+const isMainModule =
+  !!process.argv[1] &&
+  ["server.ts", "server.js", "server.cjs"].some((suffix) => process.argv[1].endsWith(suffix));
+
+if (isMainModule) {
+  startServer();
+}

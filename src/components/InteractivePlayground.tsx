@@ -4,7 +4,6 @@ import {
   FileText,
   FileUp,
   Globe,
-  FolderSearch,
   CheckCircle2,
   AlertCircle,
   RotateCcw,
@@ -16,8 +15,6 @@ import {
   Cpu,
   Zap,
 } from "lucide-react";
-import { GoogleDrivePicker } from "./GoogleDrivePicker";
-import { PickedFileResult } from "../utils/googlePicker";
 import { ModelSelector } from "./ModelSelector";
 import { AVAILABLE_GEMINI_MODELS } from "../types";
 
@@ -91,14 +88,12 @@ export function InteractivePlayground({
   };
 
   // Context state
-  const [contextType, setContextType] = useState<"none" | "text" | "pdf" | "drive">("drive");
+  const [contextType, setContextType] = useState<"none" | "text" | "pdf">("text");
   const [textContext, setTextContext] = useState<string>(SAMPLE_RESUME_TEXT);
   const [pdfFile, setPdfFile] = useState<{ name: string; size: number; base64: string } | null>(null);
-  const [driveFile, setDriveFile] = useState<PickedFileResult | null>(null);
   const [systemInstruction, setSystemInstruction] = useState<string>(
     "You are an assistant answering a job application form based on the applicant's background. Answer concisely, in first person as the applicant. Do not include conversational filler."
   );
-  const [bearerToken, setBearerToken] = useState<string>("");
 
   // Form Fields State
   const [formData, setFormData] = useState<FormValues>({
@@ -158,21 +153,7 @@ export function InteractivePlayground({
   const queryGemini = async (question: string): Promise<{ answer: string; model: string }> => {
     let contextPayload: any = null;
 
-    if (contextType === "drive" && driveFile) {
-      if (driveFile.type === "pdf") {
-        const cleanBase64 = driveFile.data.replace(/^data:[^;]+;base64,/, "");
-        contextPayload = {
-          type: "pdf",
-          data: cleanBase64,
-          mimeType: "application/pdf",
-        };
-      } else {
-        contextPayload = {
-          type: "text",
-          data: driveFile.data,
-        };
-      }
-    } else if (contextType === "text" && textContext.trim()) {
+    if (contextType === "text" && textContext.trim()) {
       contextPayload = {
         type: "text",
         data: textContext.trim(),
@@ -188,10 +169,6 @@ export function InteractivePlayground({
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-
-    if (bearerToken.trim()) {
-      headers["Authorization"] = `Bearer ${bearerToken.trim()}`;
-    }
 
     let userProfile = null;
     try {
@@ -637,18 +614,7 @@ export function InteractivePlayground({
             </div>
 
             {/* Mode selection buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-              <button
-                onClick={() => setContextType("drive")}
-                className={`py-2 px-1.5 rounded-lg flex flex-col items-center gap-1 transition ${
-                  contextType === "drive"
-                    ? "bg-blue-600 text-white font-medium shadow-sm"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
-                }`}
-              >
-                <FolderSearch className="w-3.5 h-3.5" />
-                <span className="text-[11px] truncate">Google Picker</span>
-              </button>
+            <div className="grid grid-cols-3 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
               <button
                 onClick={() => setContextType("text")}
                 className={`py-2 px-1.5 rounded-lg flex flex-col items-center gap-1 transition ${
@@ -685,19 +651,6 @@ export function InteractivePlayground({
             </div>
 
             {/* Context Content Editors */}
-            {contextType === "drive" && (
-              <GoogleDrivePicker
-                selectedDriveFile={driveFile}
-                onFileSelected={(file) => {
-                  setDriveFile(file);
-                  if (file) {
-                    setErrorMsg(null);
-                  }
-                }}
-                onLog={addLog}
-              />
-            )}
-
             {contextType === "text" && (
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center text-[11px] text-slate-400">
@@ -781,20 +734,6 @@ export function InteractivePlayground({
                 onChange={(e) => setSystemInstruction(e.target.value)}
                 placeholder="Customize tone, persona, or output style..."
                 className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-[11px] focus:outline-none focus:border-blue-500 resize-y"
-              />
-            </div>
-
-            {/* Optional Bearer Token Input for testing auth */}
-            <div className="space-y-1 pt-1 border-t border-slate-800">
-              <div className="flex justify-between items-center text-[11px] text-slate-400">
-                <span>Bearer Token (If AUTH_BEARER_TOKEN set):</span>
-              </div>
-              <input
-                type="password"
-                value={bearerToken}
-                onChange={(e) => setBearerToken(e.target.value)}
-                placeholder="Optional static Bearer token"
-                className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-[11px] focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>

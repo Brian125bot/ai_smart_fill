@@ -1,15 +1,13 @@
 import { useState, useEffect } from "react";
-import { Sparkles, Download, CheckCircle2, AlertCircle, RefreshCw, LogIn, LogOut, User as UserIcon } from "lucide-react";
+import { Sparkles, Download, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
 import { downloadExtensionZip } from "../utils/zipGenerator";
 import { AVAILABLE_GEMINI_MODELS } from "../types";
-import { auth, googleProvider, signInWithPopup, signOut, onAuthStateChanged, User, db, handleFirestoreError, OperationType } from "../lib/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 interface HealthData {
   status: string;
   model: string;
-  authRequired: boolean;
   appUrl: string | null;
+  apiKeyConfigured?: boolean;
   timestamp: string;
 }
 
@@ -23,8 +21,6 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
 
   const fetchHealth = async () => {
     setLoading(true);
@@ -43,47 +39,7 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
 
   useEffect(() => {
     fetchHealth();
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        // Sync user doc to Firestore
-        const userRef = doc(db, 'users', currentUser.uid);
-        setDoc(userRef, {
-          uid: currentUser.uid,
-          email: currentUser.email || '',
-          displayName: currentUser.displayName || '',
-          photoURL: currentUser.photoURL || '',
-          createdAt: serverTimestamp(),
-        }, { merge: true }).catch((err) => {
-          try {
-            handleFirestoreError(err, OperationType.WRITE, `users/${currentUser.uid}`);
-          } catch {
-            // Suppress unhandled promise rejection in console
-          }
-        });
-      }
-    });
-    return () => unsubscribe();
   }, []);
-
-  const handleGoogleSignIn = async () => {
-    setAuthLoading(true);
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      console.error("Sign-in error:", err);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-    } catch (err: any) {
-      console.error("Sign-out error:", err);
-    }
-  };
 
   const currentModelId = selectedModel || health?.model || "gemini-3.7-flash";
   const modelMeta = AVAILABLE_GEMINI_MODELS.find((m) => m.id === currentModelId);
@@ -190,7 +146,7 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
           >
             {loading ? (
               <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-            ) : health?.status === "ok" ? (
+            ) : health?.status === "ok" && health.apiKeyConfigured !== false ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             ) : (
               <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
@@ -203,11 +159,6 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
                 </span>
               )}
             </div>
-            {health?.authRequired && (
-              <span className="px-1.5 py-0.5 rounded text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                Bearer Auth
-              </span>
-            )}
           </div>
 
           {/* Download Zip CTA */}
@@ -219,46 +170,6 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
             <Download className="w-4 h-4" />
             <span>{downloading ? "Packaging..." : ".ZIP"}</span>
           </button>
-
-          {/* Firebase Auth Google Sign In / User Profile */}
-          {user ? (
-            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || "User"}
-                  className="w-7 h-7 rounded-full border border-slate-700 object-cover"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">
-                  {user.email?.[0]?.toUpperCase() || "U"}
-                </div>
-              )}
-              <div className="hidden lg:block text-left text-xs">
-                <div className="text-slate-200 font-medium truncate max-w-[100px]">
-                  {user.displayName || user.email?.split("@")[0]}
-                </div>
-                <div className="text-[10px] text-emerald-400 font-mono">Synced</div>
-              </div>
-              <button
-                onClick={handleSignOut}
-                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
-                title="Sign out"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={authLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-slate-200 hover:text-white text-xs font-medium transition shadow-sm disabled:opacity-50"
-              title="Sign in with Google via Firebase Auth"
-            >
-              <LogIn className="w-3.5 h-3.5 text-blue-400" />
-              <span>{authLoading ? "Signing in..." : "Google Sign In"}</span>
-            </button>
-          )}
         </div>
       </div>
     </header>

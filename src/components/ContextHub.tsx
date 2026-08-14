@@ -18,38 +18,23 @@ import {
   Link as LinkIcon,
   BookOpen,
   Zap,
-  LogIn,
-  ShieldCheck,
   Layers,
   CopyPlus,
   Edit2,
   Play,
   RotateCcw,
   Clock,
-  ExternalLink,
   Square,
 } from "lucide-react";
 import {
-  auth,
-  googleProvider,
-  signInWithPopup,
-  onAuthStateChanged,
-  User,
-  db,
-  handleFirestoreError,
-  OperationType,
-} from "../lib/firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import {
   AVAILABLE_GEMINI_MODELS,
   PersonaProfile,
-  UserProfileFields,
   CustomQA,
   BatchFormField,
   BatchFieldAnswer,
 } from "../types";
-import { GoogleDrivePicker } from "./GoogleDrivePicker";
-import { PickedFileResult } from "../utils/googlePicker";
+
+const LOCAL_PAIRING_TOKEN = "local-user-profile";
 
 const DEFAULT_PROFILES: PersonaProfile[] = [
   {
@@ -216,9 +201,6 @@ interface ContextHubProps {
 }
 
 export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [loadingConfig, setLoadingConfig] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedRecently, setSavedRecently] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
@@ -248,82 +230,27 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const backendUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/answerQuestion`
-      : "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/answerQuestion";
+      : "http://localhost:3000/answerQuestion";
 
   const batchBackendUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/batchAnswerForm`
-      : "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/batchAnswerForm";
+      : "http://localhost:3000/batchAnswerForm";
 
-  // Load configuration from Firebase Firestore or LocalStorage
+  // Load configuration from LocalStorage
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        setLoadingConfig(true);
-        try {
-          const userDocRef = doc(db, "users", currentUser.uid);
-          const snap = await getDoc(userDocRef);
-          if (snap.exists()) {
-            const data = snap.data();
-            if (Array.isArray(data.profiles) && data.profiles.length > 0) {
-              setProfiles(data.profiles);
-              if (data.activeProfileId) {
-                setActiveProfileId(data.activeProfileId);
-              }
-            } else if (data.profileFields) {
-              // Backward compatibility with single profile
-              const singleProfile: PersonaProfile = {
-                id: "profile-default",
-                name: "Main Profile",
-                icon: "💼",
-                isDefault: true,
-                systemInstruction:
-                  data.systemInstruction || DEFAULT_PROFILES[0].systemInstruction,
-                selectedModel: data.selectedModel || "gemini-3.7-flash",
-                usePageContext:
-                  typeof data.usePageContext === "boolean"
-                    ? data.usePageContext
-                    : true,
-                profileFields: data.profileFields,
-                pdfFile:
-                  data.pdfData && data.pdfName
-                    ? {
-                        name: data.pdfName,
-                        size: data.pdfSize || 0,
-                        mimeType: data.pdfMimeType || "application/pdf",
-                        base64: data.pdfData,
-                      }
-                    : null,
-                textContext: data.textContext || "",
-              };
-              setProfiles([singleProfile, ...DEFAULT_PROFILES.slice(1)]);
-            }
-          }
-        } catch (err) {
-          console.warn("Cloud config load failed, using local storage:", err);
-        } finally {
-          setLoadingConfig(false);
+    try {
+      const localStored = localStorage.getItem("gemini_dashboard_context_config");
+      if (localStored) {
+        const parsed = JSON.parse(localStored);
+        if (Array.isArray(parsed.profiles) && parsed.profiles.length > 0) {
+          setProfiles(parsed.profiles);
+          if (parsed.activeProfileId) setActiveProfileId(parsed.activeProfileId);
         }
-      } else {
-        // Fallback to localStorage
-        try {
-          const localStored = localStorage.getItem("gemini_dashboard_context_config");
-          if (localStored) {
-            const parsed = JSON.parse(localStored);
-            if (Array.isArray(parsed.profiles) && parsed.profiles.length > 0) {
-              setProfiles(parsed.profiles);
-              if (parsed.activeProfileId) setActiveProfileId(parsed.activeProfileId);
-            }
-          }
-        } catch {
-          // ignore
-        }
-        setLoadingConfig(false);
       }
-    });
-
-    return () => unsubscribe();
+    } catch {
+      // ignore
+    }
   }, []);
 
   // Update a field on the currently active profile
@@ -350,44 +277,16 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
       };
       localStorage.setItem("gemini_dashboard_context_config", JSON.stringify(payload));
 
-      // 2. Sync to Firestore if authenticated
-      if (user) {
-        const userDocRef = doc(db, "users", user.uid);
-        await setDoc(
-          userDocRef,
-          {
-            uid: user.uid,
-            email: user.email || "",
-            displayName: user.displayName || "",
-            photoURL: user.photoURL || "",
-            activeProfileId,
-            profiles,
-            // Mirror current active profile at top level for backward compat
-            systemInstruction: activeProfile.systemInstruction,
-            selectedModel: activeProfile.selectedModel,
-            usePageContext: activeProfile.usePageContext,
-            profileFields: activeProfile.profileFields,
-            textContext: activeProfile.textContext || "",
-            pdfName: activeProfile.pdfFile?.name || null,
-            pdfSize: activeProfile.pdfFile?.size || null,
-            pdfMimeType: activeProfile.pdfFile?.mimeType || null,
-            pdfData: activeProfile.pdfFile?.base64 || null,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-
-      // 3. Sync to backend API cache for instant Chrome Extension pairing & autofill
+      // 2. Sync to backend API cache for instant Chrome Extension pairing & autofill
       try {
         await fetch("/api/syncProfile", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            pairingToken: user ? user.uid : "local-user-profile",
-            userId: user?.uid || null,
-            email: user?.email || null,
-            displayName: user?.displayName || null,
+            pairingToken: LOCAL_PAIRING_TOKEN,
+            userId: null,
+            email: null,
+            displayName: null,
             profiles,
             activeProfileId,
             profileFields: activeProfile.profileFields,
@@ -413,13 +312,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
       setTimeout(() => setSavedRecently(false), 3000);
     } catch (err) {
       console.error("Save error:", err);
-      if (user) {
-        try {
-          handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
-        } catch {
-          // Handled
-        }
-      }
     } finally {
       setSaving(false);
     }
@@ -523,26 +415,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     e.target.value = "";
   };
 
-  const handleDrivePicked = (file: PickedFileResult | null) => {
-    if (!file) return;
-    if (file.type === "pdf") {
-      updateActiveProfile((p) => ({
-        ...p,
-        pdfFile: {
-          name: file.name,
-          size: file.sizeBytes || 0,
-          mimeType: file.mimeType || "application/pdf",
-          base64: file.data.replace(/^data:[^;]+;base64,/, ""),
-        },
-      }));
-    } else if (file.data) {
-      updateActiveProfile((p) => ({
-        ...p,
-        textContext: file.data,
-      }));
-    }
-  };
-
   const handleAddCustomQA = () => {
     const newQA: CustomQA = {
       id: `qa-${Date.now()}`,
@@ -585,8 +457,7 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   };
 
   const handleCopyPairingToken = () => {
-    const token = user ? user.uid : "local-user-profile";
-    navigator.clipboard.writeText(token);
+    navigator.clipboard.writeText(LOCAL_PAIRING_TOKEN);
     setCopiedToken(true);
     setTimeout(() => setCopiedToken(false), 2000);
   };
@@ -699,8 +570,8 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                 Context & Persona Profiles
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                {user ? "Cloud Synced" : "Local Draft"}
+                <Layers className="w-3.5 h-3.5" />
+                Local Mode
               </span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
                 <Layers className="w-3.5 h-3.5" />
@@ -713,48 +584,21 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
             </p>
           </div>
 
-          {/* User Auth & Save Actions */}
+          {/* Save Actions */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {user ? (
-              <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-700/80 p-2.5 rounded-2xl">
-                {user.photoURL ? (
-                  <img
-                    src={user.photoURL}
-                    alt={user.displayName || "User"}
-                    className="w-10 h-10 rounded-xl border border-slate-600 object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
-                    {user.email?.[0]?.toUpperCase()}
-                  </div>
-                )}
-                <div className="text-left pr-2">
-                  <div className="text-xs font-semibold text-white truncate max-w-[140px]">
-                    {user.displayName || user.email?.split("@")[0]}
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">
-                    UID: {user.uid.slice(0, 8)}...
-                  </div>
-                </div>
-                <button
-                  onClick={handleCopyPairingToken}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/40 text-blue-300 text-xs font-medium transition"
-                  title="Copy Pairing Token for Chrome Extension"
-                >
-                  {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedToken ? "Copied" : "Pair ID"}</span>
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => signInWithPopup(auth, googleProvider)}
-                disabled={authLoading}
-                className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium shadow-md transition disabled:opacity-50"
-              >
-                <LogIn className="w-4 h-4 text-blue-400" />
-                <span>Sign in with Google to Sync Cloud</span>
-              </button>
-            )}
+            {/* Pairing Token Button */}
+            <button
+              onClick={handleCopyPairingToken}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium shadow-md transition"
+              title="Copy Pairing Token for Chrome Extension"
+            >
+              {copiedToken ? (
+                <Check className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <Copy className="w-4 h-4 text-blue-400" />
+              )}
+              <span>{copiedToken ? "Copied" : "Copy Pair ID"}</span>
+            </button>
 
             {/* Save Button */}
             <button
@@ -1611,10 +1455,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                           className="hidden"
                         />
                       </label>
-                      <GoogleDrivePicker
-                        selectedDriveFile={null}
-                        onFileSelected={handleDrivePicked}
-                      />
                     </div>
                   </div>
                 )}

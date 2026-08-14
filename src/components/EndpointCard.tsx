@@ -5,7 +5,7 @@ export function EndpointCard() {
   const [copied, setCopied] = useState(false);
   const [activeSnippetTab, setActiveSnippetTab] = useState<"curl" | "fetch" | "python">("curl");
 
-  const productionUrl = "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/answerQuestion";
+  const productionUrl = "http://localhost:3000/answerQuestion";
   const currentOrigin = typeof window !== "undefined" ? window.location.origin : productionUrl.replace("/answerQuestion", "");
   const endpointUrl = `${currentOrigin}/answerQuestion`;
 
@@ -17,7 +17,6 @@ export function EndpointCard() {
 
   const curlSnippet = `curl -X POST "${endpointUrl}" \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_STATIC_TOKEN" \\
   -d '{
     "question": "What is your years of software engineering experience?",
     "model": "gemini-3.7-flash",
@@ -31,8 +30,7 @@ export function EndpointCard() {
   const fetchSnippet = `const res = await fetch("${endpointUrl}", {
   method: "POST",
   headers: {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer YOUR_STATIC_TOKEN"
+    "Content-Type": "application/json"
   },
   body: JSON.stringify({
     question: "What is your highest level of education?",
@@ -52,8 +50,7 @@ console.log(\`[\${model}] Answer:\`, answer);`;
 
 url = "${endpointUrl}"
 headers = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer YOUR_STATIC_TOKEN"
+    "Content-Type": "application/json"
 }
 payload = {
     "question": "Summarize relevant skills",
@@ -77,10 +74,10 @@ print(response.json().get("answer"))`;
               POST
             </span>
             <h2 className="text-slate-100 font-semibold text-base font-mono">/answerQuestion</h2>
-            <span className="text-xs text-slate-400">Cloud Run Service Endpoint</span>
+            <span className="text-xs text-slate-400">Local Server Endpoint</span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Server-side Gemini 3.7 Flash API integration with text grounding, native PDF understanding, and Bearer protection.
+            Server-side Gemini 3.7 Flash API integration with text grounding and native PDF understanding.
           </p>
         </div>
 

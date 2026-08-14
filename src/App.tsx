@@ -5,7 +5,6 @@ import { ContextHub } from "./components/ContextHub";
 import { InteractivePlayground } from "./components/InteractivePlayground";
 import { ExtensionViewer } from "./components/ExtensionViewer";
 import { InstallationGuide } from "./components/InstallationGuide";
-import { ProtectedRoute } from "./components/ProtectedRoute";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>("context-hub");
@@ -40,29 +39,19 @@ export default function App() {
         {/* Always visible endpoint summary card */}
         <EndpointCard />
 
-        {/* Tabbed Content Areas with Conditional Auth Protection */}
+        {/* Tabbed Content Areas */}
         {activeTab === "context-hub" && (
-          <ProtectedRoute
-            featureName="Context & Profile Hub"
-            featureDescription="Sign in to customize your persona profiles, upload PDF resumes, manage Google Drive grounding, and synchronize settings with the extension."
-          >
-            <ContextHub
-              selectedModel={selectedModel}
-              onModelChange={handleModelChange}
-            />
-          </ProtectedRoute>
+          <ContextHub
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
         )}
 
         {activeTab === "playground" && (
-          <ProtectedRoute
-            featureName="Interactive Form Playground"
-            featureDescription="Sign in to test single and batch form autofilling against real-time Gemini AI models and inspect reasoning outputs."
-          >
-            <InteractivePlayground
-              selectedModel={selectedModel}
-              onModelChange={handleModelChange}
-            />
-          </ProtectedRoute>
+          <InteractivePlayground
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
         )}
 
         {activeTab === "extension-files" && <ExtensionViewer />}
@@ -73,7 +62,7 @@ export default function App() {
       <footer className="border-t border-slate-900 bg-slate-950 py-6 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>Gemini Form Autofill Extension & Server-Side Backend</span>
-          <span className="font-mono text-[11px]">Powered by Google Gemini 3.7 Flash & Google Cloud Run</span>
+          <span className="font-mono text-[11px]">Powered by Google Gemini 3.7 Flash</span>
         </div>
       </footer>
     </div>

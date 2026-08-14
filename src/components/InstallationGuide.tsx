@@ -16,7 +16,7 @@ export function InstallationGuide() {
   const [downloading, setDownloading] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const productionUrl = "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/answerQuestion";
+  const productionUrl = "http://localhost:3000/answerQuestion";
   const currentOrigin = typeof window !== "undefined" ? window.location.origin : productionUrl.replace("/answerQuestion", "");
   const endpointUrl = `${currentOrigin}/answerQuestion`;
 
@@ -144,8 +144,7 @@ export function InstallationGuide() {
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed pt-1">
-              If your backend uses a static <code className="text-slate-300 font-mono">AUTH_BEARER_TOKEN</code>, enter it in the Bearer Token field.
-              You can also paste your <strong>Dashboard Pairing ID</strong> from the <strong>Context & Profile Hub</strong> to automatically sync your master applicant background, custom Q&A answers, and grounding resume!
+              Paste your <strong>Dashboard Pairing ID</strong> from the <strong>Context & Profile Hub</strong> to automatically sync your master applicant background, custom Q&A answers, and grounding resume!
             </p>
           </div>
         </div>
@@ -176,9 +175,9 @@ export function InstallationGuide() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
           <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
-            <div className="font-semibold text-slate-200">Where do I set my Bearer token?</div>
+            <div className="font-semibold text-slate-200">Do I need an API key or token?</div>
             <p className="text-[11px] text-slate-400">
-              On your Cloud Run service or in your local <code className="text-blue-300 font-mono">.env</code> file, set <code className="text-blue-300 font-mono">AUTH_BEARER_TOKEN="your-secret"</code>. Then paste that exact string into the extension popup.
+              No. The local server proxies Gemini requests using the <code className="text-blue-300 font-mono">GEMINI_API_KEY</code> from your <code className="text-blue-300 font-mono">.env</code> file. No tokens are required in the extension.
             </p>
           </div>
 

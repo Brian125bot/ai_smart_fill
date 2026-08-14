@@ -52,9 +52,10 @@ function createIconBlob(size: number): Promise<Blob> {
 }
 
 /**
- * Creates and triggers download of the complete Chrome extension ZIP package
+ * Builds the complete Chrome extension ZIP package (without triggering a download).
+ * Icons are placed at the extension root to match manifest.json references.
  */
-export async function downloadExtensionZip(): Promise<void> {
+export async function buildExtensionZip(): Promise<JSZip> {
   const zip = new JSZip();
 
   // Add source files
@@ -62,15 +63,21 @@ export async function downloadExtensionZip(): Promise<void> {
     zip.file(file.path, file.content);
   }
 
-  // Generate and add icons
+  // Generate and add icons at the extension root (manifest.json references them there)
   const iconSizes = [16, 48, 128];
-  const iconsFolder = zip.folder("icons");
-  if (iconsFolder) {
-    for (const size of iconSizes) {
-      const iconBlob = await createIconBlob(size);
-      iconsFolder.file(`icon${size}.png`, iconBlob);
-    }
+  for (const size of iconSizes) {
+    const iconBlob = await createIconBlob(size);
+    zip.file(`icon${size}.png`, iconBlob);
   }
+
+  return zip;
+}
+
+/**
+ * Creates and triggers download of the complete Chrome extension ZIP package
+ */
+export async function downloadExtensionZip(): Promise<void> {
+  const zip = await buildExtensionZip();
 
   // Generate ZIP blob and trigger browser download
   const content = await zip.generateAsync({ type: "blob" });
