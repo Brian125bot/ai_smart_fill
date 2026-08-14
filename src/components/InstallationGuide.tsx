@@ -16,7 +16,8 @@ export function InstallationGuide() {
   const [downloading, setDownloading] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
 
-  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "https://your-cloud-run-url.run.app";
+  const productionUrl = "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/answerQuestion";
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : productionUrl.replace("/answerQuestion", "");
   const endpointUrl = `${currentOrigin}/answerQuestion`;
 
   const handleDownload = async () => {
@@ -143,7 +144,24 @@ export function InstallationGuide() {
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed pt-1">
-              If your backend uses a static <code className="text-slate-300 font-mono">AUTH_BEARER_TOKEN</code>, enter it in the Bearer Token field. Then open any form on the web and click the floating <strong>"AutoFill Form"</strong> button!
+              If your backend uses a static <code className="text-slate-300 font-mono">AUTH_BEARER_TOKEN</code>, enter it in the Bearer Token field.
+              You can also paste your <strong>Dashboard Pairing ID</strong> from the <strong>Context & Profile Hub</strong> to automatically sync your master applicant background, custom Q&A answers, and grounding resume!
+            </p>
+          </div>
+        </div>
+
+        {/* Step 5 - Context Hub */}
+        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 flex gap-4 items-start">
+          <div className="w-8 h-8 rounded-xl bg-cyan-600/20 border border-cyan-500/30 text-cyan-400 flex items-center justify-center font-bold text-sm flex-shrink-0">
+            5
+          </div>
+          <div className="space-y-2 flex-1">
+            <h4 className="text-slate-200 font-semibold text-sm flex items-center gap-2">
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <span>Configure Context on the Dashboard</span>
+            </h4>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Use the <strong>"Context & Profile Hub"</strong> tab in this dashboard to manage your resume PDF, personal coordinates (LinkedIn, GitHub, contact info), and custom Q&As. The Chrome extension automatically reads this configuration when answering form questions!
             </p>
           </div>
         </div>

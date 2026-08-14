@@ -156,6 +156,38 @@ interface AnswerQuestionRequest {
   } | null;
   systemInstruction?: string | null;
   model?: string | null;
+  userId?: string | null;
+  pairingToken?: string | null;
+  userProfile?: Record<string, any> | null;
+}
+
+// Helper to synthesize structured user profile into a crisp AI grounding block
+function synthesizeProfileContext(profile: Record<string, any> | null | undefined): string {
+  if (!profile || Object.keys(profile).length === 0) return "";
+  const lines: string[] = ["--- APPLICANT / USER PROFILE GROUNDING ---"];
+  if (profile.fullName) lines.push(`Name: ${profile.fullName}`);
+  if (profile.jobTitle) lines.push(`Title / Role: ${profile.jobTitle}`);
+  if (profile.email) lines.push(`Email: ${profile.email}`);
+  if (profile.phone) lines.push(`Phone: ${profile.phone}`);
+  if (profile.location) lines.push(`Location: ${profile.location}`);
+  if (profile.yearsOfExperience) lines.push(`Experience: ${profile.yearsOfExperience}`);
+  if (profile.education) lines.push(`Education: ${profile.education}`);
+  if (profile.coreSkills) lines.push(`Core Skills: ${profile.coreSkills}`);
+  if (profile.portfolioUrl) lines.push(`Portfolio: ${profile.portfolioUrl}`);
+  if (profile.linkedinUrl) lines.push(`LinkedIn: ${profile.linkedinUrl}`);
+  if (profile.githubUrl) lines.push(`GitHub: ${profile.githubUrl}`);
+  if (profile.bioSummary) lines.push(`Summary: ${profile.bioSummary}`);
+
+  if (Array.isArray(profile.customQAs) && profile.customQAs.length > 0) {
+    lines.push("\nPreset Custom Q&A Reference:");
+    profile.customQAs.forEach((qa: any, idx: number) => {
+      if (qa.question && qa.answer) {
+        lines.push(`Q${idx + 1}: ${qa.question}\nA: ${qa.answer}`);
+      }
+    });
+  }
+  lines.push("------------------------------------------");
+  return lines.join("\n");
 }
 
 async function startServer() {
@@ -237,6 +269,9 @@ async function startServer() {
       const question = body.question.trim();
       const context = body.context;
       const systemInstruction = body.systemInstruction;
+      const userProfile = body.userProfile;
+      const profileContextStr = synthesizeProfileContext(userProfile);
+
       const requestedModel =
         body.model && typeof body.model === "string" && body.model.trim()
           ? body.model.trim()
@@ -244,18 +279,19 @@ async function startServer() {
 
       const ai = getGeminiClient();
 
-      // 3. Build contents based on context type
+      // 3. Build contents based on context type and profile grounding
       let contents: any;
 
-      if (context && context.type === "text" && context.data) {
-        // Text Context: Prepend context text to the question in the prompt
-        const promptWithContext = `Context:\n${context.data}\n\nQuestion:\n${question}`;
-        contents = promptWithContext;
-      } else if (context && context.type === "pdf" && context.data) {
-        // PDF Context: Native document understanding with inlineData
-        // Clean base64 data string if a data URL prefix was provided
+      if (context && context.type === "pdf" && context.data) {
+        // PDF Context: Native document understanding with inlineData + profile context
         const cleanBase64 = context.data.replace(/^data:[^;]+;base64,/, "");
         const mimeType = context.mimeType || "application/pdf";
+
+        let promptText = "";
+        if (profileContextStr) {
+          promptText += `${profileContextStr}\n\n`;
+        }
+        promptText += `Based on the provided document and applicant profile, answer the following question accurately, concisely, and directly for a form field:\n\nQuestion: ${question}`;
 
         contents = {
           parts: [
@@ -266,13 +302,21 @@ async function startServer() {
               },
             },
             {
-              text: `Based on the provided document, answer the following question accurately, concisely, and directly for a form field:\n\n${question}`,
+              text: promptText,
             },
           ],
         };
       } else {
-        // No context: Send only the question
-        contents = question;
+        // Text Context or Profile Grounding or Question only
+        let promptText = "";
+        if (profileContextStr) {
+          promptText += `${profileContextStr}\n\n`;
+        }
+        if (context && context.type === "text" && context.data) {
+          promptText += `Context:\n${context.data}\n\n`;
+        }
+        promptText += `Question:\n${question}`;
+        contents = promptText;
       }
 
       // 4. Model configuration
@@ -301,6 +345,189 @@ async function startServer() {
       console.error("Error in /answerQuestion:", error);
       const errorMessage = error?.message || "Internal server error generating answer with Gemini.";
       res.status(500).json({
+        error: errorMessage,
+      });
+    }
+  });
+
+  // ==========================================
+  // POST /batchAnswerForm Endpoint (Item 1: Batch Form Autofilling)
+  // ==========================================
+  app.post("/batchAnswerForm", async (req: Request, res: Response): Promise<void> => {
+    const startTime = Date.now();
+    try {
+      // 1. Bearer Token Authentication check
+      const expectedToken = process.env.AUTH_BEARER_TOKEN?.trim();
+      if (expectedToken) {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+          res.status(401).json({
+            success: false,
+            error: "Unauthorized: Missing or invalid Authorization Bearer header.",
+          });
+          return;
+        }
+        const token = authHeader.substring(7).trim();
+        if (token !== expectedToken) {
+          res.status(401).json({
+            success: false,
+            error: "Unauthorized: Invalid Bearer token.",
+          });
+          return;
+        }
+      }
+
+      // 2. Validate request payload
+      const body = req.body;
+      if (!body || !Array.isArray(body.fields) || body.fields.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: "Bad Request: 'fields' must be a non-empty array of form fields.",
+        });
+        return;
+      }
+
+      const fields: Array<{
+        id: string;
+        name?: string;
+        type?: string;
+        question: string;
+        placeholder?: string;
+        options?: string[];
+        maxLength?: number;
+      }> = body.fields;
+
+      const context = body.context;
+      const systemInstruction = body.systemInstruction;
+      const userProfile = body.userProfile;
+      const profileContextStr = synthesizeProfileContext(userProfile);
+      const pageContext = body.pageContext;
+
+      const requestedModel =
+        body.model && typeof body.model === "string" && body.model.trim()
+          ? body.model.trim()
+          : DEFAULT_GEMINI_MODEL;
+
+      const ai = getGeminiClient();
+
+      // Build structured batch instructions
+      let promptText = "";
+      if (profileContextStr) {
+        promptText += `${profileContextStr}\n\n`;
+      }
+
+      if (pageContext) {
+        promptText += `--- ACTIVE WEBPAGE CONTEXT ---\n`;
+        if (pageContext.title) promptText += `Page Title: ${pageContext.title}\n`;
+        if (pageContext.url) promptText += `URL: ${pageContext.url}\n`;
+        if (Array.isArray(pageContext.headings) && pageContext.headings.length > 0) {
+          promptText += `Headings: ${pageContext.headings.slice(0, 5).join(" | ")}\n`;
+        }
+        promptText += `------------------------------\n\n`;
+      }
+
+      if (context && context.type === "text" && context.data) {
+        promptText += `--- GROUNDING TEXT CONTEXT ---\n${context.data}\n------------------------------\n\n`;
+      }
+
+      promptText += `Task: Fill out all the following web form fields accurately, professionally, and directly in first-person based on the applicant profile, attached documents, and webpage context.
+
+Here are the target form fields to answer:
+${JSON.stringify(fields, null, 2)}
+
+Requirements:
+1. Return a valid JSON array of objects with the exact schema:
+[
+  {
+    "id": "<matching field id>",
+    "question": "<field question>",
+    "answer": "<concise answer for this field>",
+    "confidence": 0.95,
+    "reasoning": "<short note on why this answer fits>"
+  }
+]
+2. For select dropdowns or radio choices with 'options', the 'answer' MUST match one of the available options exactly or be the best logical choice.
+3. For phone numbers, emails, addresses, names, and URLs, format them cleanly according to standard conventions.
+4. Keep answers crisp and appropriate for form inputs. Do not wrap answers in conversational explanations.
+5. Return ONLY the valid JSON array without backticks or markdown fences.`;
+
+      let contents: any;
+      if (context && context.type === "pdf" && context.data) {
+        const cleanBase64 = context.data.replace(/^data:[^;]+;base64,/, "");
+        const mimeType = context.mimeType || "application/pdf";
+        contents = {
+          parts: [
+            {
+              inlineData: {
+                mimeType,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: promptText,
+            },
+          ],
+        };
+      } else {
+        contents = promptText;
+      }
+
+      const config: Record<string, any> = {
+        responseMimeType: "application/json",
+      };
+
+      if (
+        systemInstruction &&
+        typeof systemInstruction === "string" &&
+        systemInstruction.trim().length > 0
+      ) {
+        config.systemInstruction = systemInstruction.trim();
+      }
+
+      const { text: rawOutput, effectiveModel } = await generateWithRetryAndFallback(
+        ai,
+        requestedModel,
+        contents,
+        config
+      );
+
+      // Clean and parse JSON response
+      let parsedAnswers: any[] = [];
+      try {
+        const cleaned = rawOutput
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/i, "")
+          .trim();
+        parsedAnswers = JSON.parse(cleaned);
+        if (!Array.isArray(parsedAnswers) && typeof parsedAnswers === "object" && Array.isArray((parsedAnswers as any).answers)) {
+          parsedAnswers = (parsedAnswers as any).answers;
+        }
+      } catch (jsonErr) {
+        console.warn("JSON parse fallback in /batchAnswerForm:", jsonErr);
+        // Resilient fallback: map fields to raw output or empty answers
+        parsedAnswers = fields.map((f) => ({
+          id: f.id,
+          question: f.question,
+          answer: "",
+          confidence: 0,
+          reasoning: "Parse error in batch generation",
+        }));
+      }
+
+      const timeMs = Date.now() - startTime;
+
+      res.status(200).json({
+        success: true,
+        answers: parsedAnswers,
+        modelUsed: effectiveModel,
+        timeMs,
+      });
+    } catch (error: any) {
+      console.error("Error in /batchAnswerForm:", error);
+      const errorMessage = error?.message || "Internal server error in batch form autofill.";
+      res.status(500).json({
+        success: false,
+        answers: [],
         error: errorMessage,
       });
     }

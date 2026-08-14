@@ -193,6 +193,17 @@ export function InteractivePlayground({
       headers["Authorization"] = `Bearer ${bearerToken.trim()}`;
     }
 
+    let userProfile = null;
+    try {
+      const storedConfig = localStorage.getItem("gemini_dashboard_context_config");
+      if (storedConfig) {
+        const parsed = JSON.parse(storedConfig);
+        userProfile = parsed.profileFields || null;
+      }
+    } catch {
+      // ignore
+    }
+
     const response = await fetch("/answerQuestion", {
       method: "POST",
       headers,
@@ -201,6 +212,7 @@ export function InteractivePlayground({
         context: contextPayload,
         systemInstruction: systemInstruction.trim() || null,
         model: selectedModel,
+        userProfile,
       }),
     });
 

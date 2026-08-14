@@ -1,14 +1,27 @@
 {
   "entities": {
     "UserProfile": {
-      "title": "User Profile",
-      "description": "Stores user profile and preferences",
+      "title": "User Profile & Context Configuration",
+      "description": "Stores user profile, AI system instructions, attached grounding documents, and form autofill presets",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "format": "email", "maxLength": 256 },
         "displayName": { "type": "string", "maxLength": 128 },
         "photoURL": { "type": "string", "maxLength": 512 },
+        "activeProfileId": { "type": "string", "maxLength": 64 },
+        "profiles": { "type": "array" },
+        "systemInstruction": { "type": "string", "maxLength": 5000 },
+        "selectedModel": { "type": "string", "maxLength": 64 },
+        "customModel": { "type": "string", "maxLength": 128 },
+        "usePageContext": { "type": "boolean" },
+        "pdfName": { "type": "string", "maxLength": 256 },
+        "pdfSize": { "type": "number" },
+        "pdfMimeType": { "type": "string", "maxLength": 64 },
+        "pdfData": { "type": "string" },
+        "textContext": { "type": "string", "maxLength": 50000 },
+        "profileFields": { "type": "object" },
+        "updatedAt": { "type": "timestamp" },
         "createdAt": { "type": "timestamp" }
       },
       "required": ["uid", "email", "createdAt"]
@@ -17,7 +30,7 @@
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "UserProfile" },
-      "description": "User profile document keyed by UID"
+      "description": "User profile and context configuration document keyed by UID"
     }
   }
 }

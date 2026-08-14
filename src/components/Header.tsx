@@ -138,6 +138,17 @@ export function Header({ onTabChange, activeTab, selectedModel }: HeaderProps) {
         {/* Navigation Tabs */}
         <nav className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs font-medium">
           <button
+            onClick={() => onTabChange("context-hub")}
+            className={`px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+              activeTab === "context-hub"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-blue-300" />
+            <span>Context & Profile Hub</span>
+          </button>
+          <button
             onClick={() => onTabChange("playground")}
             className={`px-3.5 py-1.5 rounded-lg transition-all ${
               activeTab === "playground"

@@ -11,6 +11,113 @@ export interface GeminiModelOption {
   badgeColor: string;
 }
 
+export interface CustomQA {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface UserProfileFields {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  location?: string;
+  jobTitle?: string;
+  yearsOfExperience?: string;
+  education?: string;
+  coreSkills?: string;
+  portfolioUrl?: string;
+  linkedinUrl?: string;
+  githubUrl?: string;
+  bioSummary?: string;
+  customQAs?: CustomQA[];
+}
+
+export interface PersonaProfile {
+  id: string;
+  name: string;
+  icon?: string;
+  isDefault?: boolean;
+  systemInstruction: string;
+  selectedModel: string;
+  usePageContext: boolean;
+  profileFields: UserProfileFields;
+  pdfFile?: {
+    name: string;
+    size: number;
+    mimeType: string;
+    base64: string;
+  } | null;
+  textContext?: string;
+  updatedAt?: string;
+}
+
+export interface UserContextConfig {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string;
+  activeProfileId?: string;
+  profiles?: PersonaProfile[];
+  systemInstruction?: string;
+  selectedModel?: string;
+  customModel?: string;
+  usePageContext?: boolean;
+  pdfName?: string;
+  pdfSize?: number;
+  pdfMimeType?: string;
+  pdfData?: string;
+  textContext?: string;
+  profileFields?: UserProfileFields;
+  updatedAt?: string | null;
+}
+
+export interface BatchFormField {
+  id: string;
+  name?: string;
+  type: string;
+  question: string;
+  placeholder?: string;
+  options?: string[];
+  maxLength?: number;
+  required?: boolean;
+}
+
+export interface BatchFieldAnswer {
+  id: string;
+  question: string;
+  answer: string;
+  confidence?: number;
+  reasoning?: string;
+}
+
+export interface BatchAnswerRequest {
+  fields: BatchFormField[];
+  pageContext?: {
+    url?: string;
+    title?: string;
+    headings?: string[];
+  } | null;
+  context?: {
+    type: "pdf" | "text";
+    data: string;
+    mimeType?: string;
+  } | null;
+  systemInstruction?: string | null;
+  model?: string | null;
+  userProfile?: Record<string, any> | null;
+  activeProfileId?: string | null;
+  pairingToken?: string | null;
+}
+
+export interface BatchAnswerResponse {
+  success: boolean;
+  answers: BatchFieldAnswer[];
+  modelUsed?: string;
+  timeMs?: number;
+  error?: string;
+}
+
 export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
   {
     id: "gemini-3.7-flash",

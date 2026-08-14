@@ -1,6 +1,6 @@
 {
   "name": "Gemini Form Autofill Extension & Backend",
-  "description": "Cloud Run backend service and Manifest V3 Chrome Extension for automatic AI-powered form filling with Google Picker, page context, and PDF grounding.",
+  "description": "Cloud Run backend service and Manifest V3 Chrome Extension for automatic AI-powered form filling with centralized dashboard context configuration, Google Drive picker, and multimodal PDF grounding.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

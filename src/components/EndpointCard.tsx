@@ -5,7 +5,8 @@ export function EndpointCard() {
   const [copied, setCopied] = useState(false);
   const [activeSnippetTab, setActiveSnippetTab] = useState<"curl" | "fetch" | "python">("curl");
 
-  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "https://your-cloud-run-url.run.app";
+  const productionUrl = "https://gemini-form-autofill-extension-backend-365757207239.us-west1.run.app/answerQuestion";
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : productionUrl.replace("/answerQuestion", "");
   const endpointUrl = `${currentOrigin}/answerQuestion`;
 
   const handleCopy = () => {

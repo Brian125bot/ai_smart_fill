@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Header } from "./components/Header";
 import { EndpointCard } from "./components/EndpointCard";
+import { ContextHub } from "./components/ContextHub";
 import { InteractivePlayground } from "./components/InteractivePlayground";
 import { ExtensionViewer } from "./components/ExtensionViewer";
 import { InstallationGuide } from "./components/InstallationGuide";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>("playground");
+  const [activeTab, setActiveTab] = useState<string>("context-hub");
   const [selectedModel, setSelectedModel] = useState<string>(() => {
     try {
       return localStorage.getItem("gemini_selected_model") || "gemini-3.7-flash";
@@ -39,6 +40,12 @@ export default function App() {
         <EndpointCard />
 
         {/* Tabbed Content Areas */}
+        {activeTab === "context-hub" && (
+          <ContextHub
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
+        )}
         {activeTab === "playground" && (
           <InteractivePlayground
             selectedModel={selectedModel}
@@ -59,3 +66,4 @@ export default function App() {
     </div>
   );
 }
+
