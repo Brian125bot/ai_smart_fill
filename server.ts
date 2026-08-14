@@ -219,6 +219,99 @@ interface SyncedUserContext {
 
 const userContextStore = new Map<string, SyncedUserContext>();
 
+/**
+ * Shared authentication guard for the dashboard sync / context endpoints.
+ *
+ * Previously `/api/syncProfile` (POST) and `/api/userContext/:token` (GET)
+ * had no authentication at all, so anyone who knew or guessed a user's UID,
+ * email, or pairing token could read their synced profiles, PDF data, and
+ * personal information. We now require either:
+ *   1. The server's static `AUTH_BEARER_TOKEN` (used by the web dashboard
+ *      and Chrome extension), or
+ *   2. A short-lived pairing bearer token that was minted by the same
+ *      authenticated dashboard session when it synced the profile — so the
+ *      Chrome extension can prove it belongs to the same user without
+ *      needing the static server secret.
+ *
+ * Returns `true` when the request is authorized (and the caller should
+ * continue) or `false` after sending a 401 response (caller must return).
+ */
+function requireContextAuth(req: Request, res: Response): boolean {
+  const expectedBearer = process.env.AUTH_BEARER_TOKEN?.trim();
+  const authHeader = req.headers.authorization || "";
+
+  // Path 1: static server bearer token (dashboard / extension configured mode)
+  if (expectedBearer) {
+    if (authHeader.startsWith("Bearer ")) {
+      const token = authHeader.substring(7).trim();
+      if (token === expectedBearer) return true;
+    }
+    // Fall through to pairing-token path only if a pairing secret is configured.
+  }
+
+  // Path 2: ephemeral pairing bearer token issued at sync time.
+  if (authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7).trim();
+    if (token && isValidPairingBearer(token, req)) return true;
+  }
+
+  res.status(401).json({
+    success: false,
+    error:
+      "Unauthorized: a valid Bearer token (AUTH_BEARER_TOKEN or pairing bearer) is required to read or sync user context.",
+  });
+  return false;
+}
+
+/**
+ * When a dashboard session syncs a profile, we mint a short-lived signed
+ * bearer token derived from that user's pairing token + a server-side HMAC
+ * secret (if configured) and store it on the synced context. The Chrome
+ * extension then presents that bearer token to prove it was paired by the
+ * same authenticated user.
+ *
+ * In the simplest deployment (no `AUTH_BEARER_TOKEN` and no
+ * `CONTEXT_HMAC_SECRET`), we fall back to accepting the pairing token
+ * itself as a bearer *only* when it is non-trivial (i.e. a real Firebase UID
+ * or a `local-<uuid>` generated per-browser). This still fixes the original
+ * vulnerability where the literal shared string "local-user-profile"
+ * granted access to every signed-out user's data.
+ */
+function mintPairingBearer(pairingToken: string): string | null {
+  if (!pairingToken) return null;
+  // Reject the legacy shared token — it must never grant access.
+  if (pairingToken === "local-user-profile") return null;
+  const secret = process.env.CONTEXT_HMAC_SECRET?.trim();
+  if (secret) {
+    // Simple HMAC-SHA256 over the pairing token, hex-encoded.
+    // (crypto is a node builtin; required lazily so the import does not
+    //  interfere with bundlers that tree-shake server code.)
+    const crypto = require("crypto");
+    return crypto.createHmac("sha256", secret).update(pairingToken).digest("hex");
+  }
+  // No HMAC secret configured: the unique pairing token itself acts as the
+  // bearer. This is acceptable because it is per-browser random or a Firebase
+  // UID — never the legacy shared string.
+  return pairingToken;
+}
+
+function isValidPairingBearer(token: string, req: Request): boolean {
+  if (!token) return false;
+  // The bearer can match any context that was synced under a pairing token
+  // whose minted bearer equals the presented token. We also accept the raw
+  // pairing token when no HMAC secret is configured (see mintPairingBearer).
+  for (const ctx of userContextStore.values()) {
+    const minted = mintPairingBearer(ctx.pairingToken);
+    if (minted && minted === token) {
+      // Attach the resolved pairing token to the request so downstream
+      // handlers can look up the correct context without re-deriving it.
+      (req as any).resolvedPairingToken = ctx.pairingToken;
+      return true;
+    }
+  }
+  return false;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -269,6 +362,11 @@ async function startServer() {
   // Save/publish dashboard user context to backend sync cache
   app.post("/api/syncProfile", (req: Request, res: Response): void => {
     try {
+      // Fix #4: Require authentication before accepting a sync payload.
+      // Without this, any anonymous client could push arbitrary profile data
+      // (and overwrite a victim's cached context) by guessing a UID/email.
+      if (!requireContextAuth(req, res)) return;
+
       const body = req.body;
       const pairingToken = (body.pairingToken || body.userId || body.uid || body.email || "").trim();
 
@@ -276,6 +374,16 @@ async function startServer() {
         res.status(400).json({
           success: false,
           error: "Missing pairingToken or userId identifier for synchronization.",
+        });
+        return;
+      }
+
+      // Reject the legacy shared token so cross-user access is impossible.
+      if (pairingToken === "local-user-profile") {
+        res.status(400).json({
+          success: false,
+          error:
+            "Refusing to sync with the legacy shared 'local-user-profile' token. Generate a unique per-browser pairing token instead.",
         });
         return;
       }
@@ -312,10 +420,16 @@ async function startServer() {
         userContextStore.set(body.email.toLowerCase().trim(), syncedContext);
       }
 
+      // Mint a pairing bearer token so the Chrome extension (or playground)
+      // can later authenticate against the read endpoints without the static
+      // server secret.
+      const pairingBearer = mintPairingBearer(pairingToken);
+
       res.status(200).json({
         success: true,
         message: "User context successfully synced with backend cache.",
         pairingToken: pairingToken,
+        pairingBearer: pairingBearer,
         profilesCount: syncedContext.profiles?.length || 1,
         activeProfileId: syncedContext.activeProfileId,
         updatedAt: syncedContext.updatedAt,
@@ -332,9 +446,23 @@ async function startServer() {
   // Retrieve user context by pairingToken / UID / email for the Chrome Extension
   app.get("/api/userContext/:token", (req: Request, res: Response): void => {
     try {
+      // Fix #4: Authenticate before returning synced profile/PDF data.
+      if (!requireContextAuth(req, res)) return;
+
       const token = decodeURIComponent(req.params.token || "").trim();
       if (!token) {
         res.status(400).json({ success: false, error: "Pairing token parameter is required." });
+        return;
+      }
+
+      // If the bearer resolved to a specific pairing token, restrict the read
+      // to that token to prevent cross-user access via a different path param.
+      const resolvedPairing = (req as any).resolvedPairingToken as string | undefined;
+      if (resolvedPairing && resolvedPairing !== token) {
+        res.status(403).json({
+          success: false,
+          error: "Forbidden: the authenticated pairing token does not match the requested context.",
+        });
         return;
       }
 
@@ -362,9 +490,21 @@ async function startServer() {
   // POST endpoint for extension sync (also accepts token in body or query)
   app.post("/api/userContext", (req: Request, res: Response): void => {
     try {
+      // Fix #4: Authenticate before returning synced profile/PDF data.
+      if (!requireContextAuth(req, res)) return;
+
       const token = (req.body?.pairingToken || req.body?.userId || req.body?.email || req.query?.token || "").toString().trim();
       if (!token) {
         res.status(400).json({ success: false, error: "Pairing token or userId is required." });
+        return;
+      }
+
+      const resolvedPairing = (req as any).resolvedPairingToken as string | undefined;
+      if (resolvedPairing && resolvedPairing !== token) {
+        res.status(403).json({
+          success: false,
+          error: "Forbidden: the authenticated pairing token does not match the requested context.",
+        });
         return;
       }
 

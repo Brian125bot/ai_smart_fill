@@ -1,16 +1,20 @@
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signOut as firebaseSignOut, 
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut as firebaseSignOut,
   onAuthStateChanged,
-  User 
+  User
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase App singleton safely. `googleAuth.ts` (used by
+// GoogleDrivePicker) also initializes Firebase. If that module loads first,
+// a bare `initializeApp` here throws "Firebase App named '[DEFAULT]' already
+// exists". Use the `getApps()` guard so both modules share the same instance.
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
