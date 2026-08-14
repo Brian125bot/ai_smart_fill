@@ -14,9 +14,9 @@ export const MANIFEST_JSON = JSON.stringify(
       default_popup: "popup.html",
       default_title: "Gemini Form Autofill & Persona Hub",
       default_icon: {
-        "16": "icons/icon16.png",
-        "48": "icons/icon48.png",
-        "128": "icons/icon128.png",
+        "16": "icon16.png",
+        "48": "icon48.png",
+        "128": "icon128.png",
       },
     },
     background: {
@@ -31,9 +31,9 @@ export const MANIFEST_JSON = JSON.stringify(
       },
     ],
     icons: {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png",
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png",
     },
   },
   null,
@@ -952,7 +952,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         pdfName: ctx.pdfName || (activeProfile?.pdfFile?.name || null),
         pdfSize: ctx.pdfSize || (activeProfile?.pdfFile?.size || null),
         pdfMimeType: ctx.pdfMimeType || (activeProfile?.pdfFile?.mimeType || "application/pdf"),
-        textContext: ctx.textContext || activeProfile?.textContext || null,
         usePageContext: ctx.usePageContext !== false,
       };
 
@@ -992,7 +991,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       "pdfName",
       "pdfSize",
       "pdfMimeType",
-      "textContext",
       "syncedEmail",
       "syncedName",
     ],
@@ -1066,7 +1064,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           pdfSize: found.pdfFile.size,
           pdfData: found.pdfFile.base64,
           pdfMimeType: found.pdfFile.mimeType,
-           textContext: found.textContext || "",
           systemInstruction: found.systemInstruction,
           selectedModel: found.selectedModel || "gemini-3.7-flash",
         });
@@ -1075,7 +1072,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         chrome.storage.local.set({
           activeProfileId: selectedId,
           userProfile: found.profileFields,
-           textContext: found.textContext || "",
           systemInstruction: found.systemInstruction,
           selectedModel: found.selectedModel || "gemini-3.7-flash",
         });
@@ -1441,7 +1437,6 @@ async function handleBatchAnswerForm(payload) {
     "selectedModel",
     "pdfData",
     "pdfMimeType",
-     "textContext",
     "systemInstruction",
   ]);
 
@@ -1476,11 +1471,6 @@ async function handleBatchAnswerForm(payload) {
       type: "pdf",
       data: storage.pdfData,
       mimeType: storage.pdfMimeType || "application/pdf",
-    };
-  } else if (!context && storage.textContext) {
-    context = {
-      type: "text",
-      data: storage.textContext,
     };
   }
 
@@ -1529,7 +1519,6 @@ async function handleAnswerQuestion(payload) {
     "selectedModel",
     "pdfData",
     "pdfMimeType",
-     "textContext",
     "systemInstruction",
   ]);
   const backendUrl = storage.backendUrl ? storage.backendUrl.trim() : "";
@@ -1559,11 +1548,6 @@ async function handleAnswerQuestion(payload) {
       type: "pdf",
       data: storage.pdfData,
       mimeType: storage.pdfMimeType || "application/pdf",
-    };
-  } else if (!context && storage.textContext) {
-    context = {
-      type: "text",
-      data: storage.textContext,
     };
   }
 
@@ -1779,7 +1763,6 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         "systemInstruction",
         "pdfData",
         "pdfMimeType",
-         "textContext",
       ]);
 
       if (!storage.backendUrl) {
@@ -1819,8 +1802,6 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         statusText.textContent = "Batch answering " + batchFields.length + " fields in 1 request...";
       }
 
-      // Dashboard context is the only source for applicant answers. The active
-      // page is used below only to identify the form and its field labels.
       let context = null;
       if (storage.pdfData) {
         context = {
@@ -1828,26 +1809,24 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
           data: storage.pdfData,
           mimeType: storage.pdfMimeType || "application/pdf",
         };
-      } else if (storage.textContext) {
-        context = {
-          type: "text",
-          data: storage.textContext,
-        };
+      } else if (storage.usePageContext !== false) {
+        const selection = window.getSelection() ? window.getSelection().toString().trim() : "";
+        const pageText = selection || (document.body.innerText ? document.body.innerText.slice(0, 20000) : "");
+        if (pageText) {
+          context = { type: "text", data: pageText };
+        }
       }
 
-      let pageContext = null;
-      if (storage.usePageContext !== false) {
-        const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
-          .map((h) => h.innerText.trim())
-          .filter((t) => t.length > 0)
-          .slice(0, 6);
+      const headings = Array.from(document.querySelectorAll("h1, h2, h3"))
+        .map((h) => h.innerText.trim())
+        .filter((t) => t.length > 0)
+        .slice(0, 6);
 
-        pageContext = {
-          title: document.title,
-          url: window.location.href,
-          headings: headings,
-        };
-      }
+      const pageContext = {
+        title: document.title,
+        url: window.location.href,
+        headings: headings,
+      };
 
       const response = await chrome.runtime.sendMessage({
         action: "batchAnswerForm",

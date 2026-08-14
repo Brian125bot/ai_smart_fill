@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import {
   Sparkles,
   FileText,
@@ -15,7 +15,6 @@ import {
   Info,
   Cpu,
   Zap,
-  Square,
 } from "lucide-react";
 import { GoogleDrivePicker } from "./GoogleDrivePicker";
 import { PickedFileResult } from "../utils/googlePicker";
@@ -120,12 +119,6 @@ export function InteractivePlayground({
   const [eventLogs, setEventLogs] = useState<string[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Fix #7: Abort controller for the "Fill all" routine. Previously once
-  // `fillAllFields` started there was no way to cancel a long-running fill;
-  // the user was stuck until all 8 sequential requests resolved. Now a stop
-  // button aborts the in-flight request immediately.
-  const fillAllAbortRef = useRef<AbortController | null>(null);
-
   const addLog = (msg: string) => {
     setEventLogs((prev) => [
       `[${new Date().toLocaleTimeString()}] ${msg}`,
@@ -200,22 +193,12 @@ export function InteractivePlayground({
       headers["Authorization"] = `Bearer ${bearerToken.trim()}`;
     }
 
-    // Fix #10: Pull the pairing token (and profile fields) out of the synced
-    // dashboard config so the server can fall back to its in-memory cache of
-    // synced context/profile/PDF. Previously the playground only sent
-    // `userProfile` from localStorage, so the server could never match a
-    // `pairingToken` and the playground could not use synced dashboard
-    // context — only whatever happened to be in localStorage.
     let userProfile = null;
-    let pairingToken: string | null = null;
-    let storedSystemInstruction: string | null = null;
     try {
       const storedConfig = localStorage.getItem("gemini_dashboard_context_config");
       if (storedConfig) {
         const parsed = JSON.parse(storedConfig);
         userProfile = parsed.profileFields || null;
-        pairingToken = parsed.pairingToken || null;
-        storedSystemInstruction = parsed.systemInstruction || null;
       }
     } catch {
       // ignore
@@ -227,10 +210,9 @@ export function InteractivePlayground({
       body: JSON.stringify({
         question,
         context: contextPayload,
-        systemInstruction: systemInstruction.trim() || storedSystemInstruction || null,
+        systemInstruction: systemInstruction.trim() || null,
         model: selectedModel,
         userProfile,
-        pairingToken,
       }),
     });
 
@@ -266,155 +248,48 @@ export function InteractivePlayground({
     }
   };
 
-  // Fill all fields via the single batch endpoint instead of 8 sequential
-  // calls. The batch endpoint (/batchAnswerForm) resolves every field in one
-  // round-trip using Gemini structured outputs, which is ~8x faster than the
-  // previous sequential loop and also lets us abort the whole routine with a
-  // single AbortController.
+  // Fill all fields sequentially
   const fillAllFields = async () => {
-    // Abort any prior in-flight batch request before starting a new one.
-    if (fillAllAbortRef.current) {
-      fillAllAbortRef.current.abort();
-    }
-    const controller = new AbortController();
-    fillAllAbortRef.current = controller;
-
     setIsFillingAll(true);
     setErrorMsg(null);
     setEventLogs([]);
-    setProgressText("Sending single batch request to /batchAnswerForm...");
 
-    const fieldsToFill: { key: keyof FormValues; id: string; prompt: string; label: string }[] = [
-      { key: "fullName", id: "fullName", prompt: "What is the applicant's full legal name?", label: "Full Name" },
-      { key: "email", id: "email", prompt: "What is the applicant's email address?", label: "Email Address" },
-      { key: "phone", id: "phone", prompt: "What is the applicant's contact phone number?", label: "Phone Number" },
-      { key: "experienceYears", id: "experienceYears", prompt: "How many years of relevant software engineering experience does the candidate have?", label: "Years of Experience" },
-      { key: "education", id: "education", prompt: "What is the candidate's highest educational degree and university?", label: "Education" },
-      { key: "coreSkills", id: "coreSkills", prompt: "List the candidate's primary core technical skills and programming languages.", label: "Core Skills" },
-      { key: "coverLetterSummary", id: "coverLetterSummary", prompt: "Write a brief 2-3 sentence introductory statement highlighting why the applicant is a great fit for a Senior Cloud/AI role.", label: "Brief Summary" },
-      { key: "portfolioOrGithub", id: "portfolioOrGithub", prompt: "What is the applicant's GitHub or portfolio URL?", label: "Portfolio / GitHub" },
+    const fieldsToFill: { key: keyof FormValues; prompt: string; label: string }[] = [
+      { key: "fullName", prompt: "What is the applicant's full legal name?", label: "Full Name" },
+      { key: "email", prompt: "What is the applicant's email address?", label: "Email Address" },
+      { key: "phone", prompt: "What is the applicant's contact phone number?", label: "Phone Number" },
+      { key: "experienceYears", prompt: "How many years of relevant software engineering experience does the candidate have?", label: "Years of Experience" },
+      { key: "education", prompt: "What is the candidate's highest educational degree and university?", label: "Education" },
+      { key: "coreSkills", prompt: "List the candidate's primary core technical skills and programming languages.", label: "Core Skills" },
+      { key: "coverLetterSummary", prompt: "Write a brief 2-3 sentence introductory statement highlighting why the applicant is a great fit for a Senior Cloud/AI role.", label: "Brief Summary" },
+      { key: "portfolioOrGithub", prompt: "What is the applicant's GitHub or portfolio URL?", label: "Portfolio / GitHub" },
     ];
 
-    addLog(`🚀 Starting batch autofill via [${selectedModel}] for ${fieldsToFill.length} fields in a single request...`);
+    addLog(`🚀 Starting automated form fill pass via [${selectedModel}] on ${fieldsToFill.length} fields...`);
 
-    // Build the context payload the same way queryGemini does, so the batch
-    // path stays consistent with the single-field path.
-    let contextPayload: any = null;
-    if (contextType === "drive" && driveFile) {
-      if (driveFile.type === "pdf") {
-        contextPayload = {
-          type: "pdf",
-          data: driveFile.data.replace(/^data:[^;]+;base64,/, ""),
-          mimeType: "application/pdf",
-        };
-      } else {
-        contextPayload = { type: "text", data: driveFile.data };
+    for (let i = 0; i < fieldsToFill.length; i++) {
+      const item = fieldsToFill[i];
+      setActiveField(item.key);
+      setProgressText(`Filling field ${i + 1} of ${fieldsToFill.length}: ${item.label}...`);
+
+      try {
+        const res = await queryGemini(item.prompt);
+        setFormData((prev) => ({ ...prev, [item.key]: res.answer }));
+        addLog(`✅ [${i + 1}/${fieldsToFill.length}] ${item.label} (${res.model}): "${res.answer.slice(0, 36)}..."`);
+      } catch (err: any) {
+        addLog(`❌ [${i + 1}/${fieldsToFill.length}] ${item.label}: ${err.message}`);
+        setErrorMsg(err.message);
+        break;
       }
-    } else if (contextType === "text" && textContext.trim()) {
-      contextPayload = { type: "text", data: textContext.trim() };
-    } else if (contextType === "pdf" && pdfFile) {
-      contextPayload = { type: "pdf", data: pdfFile.base64, mimeType: "application/pdf" };
     }
 
-    // Reuse the synced dashboard config so the server can fall back to its
-    // in-memory cache of context/profile/PDF (fix #10 parity).
-    let userProfile = null;
-    let pairingToken: string | null = null;
-    let storedSystemInstruction: string | null = null;
-    try {
-      const storedConfig = localStorage.getItem("gemini_dashboard_context_config");
-      if (storedConfig) {
-        const parsed = JSON.parse(storedConfig);
-        userProfile = parsed.profileFields || null;
-        pairingToken = parsed.pairingToken || null;
-        storedSystemInstruction = parsed.systemInstruction || null;
-      }
-    } catch {
-      // ignore
-    }
-
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (bearerToken.trim()) {
-      headers["Authorization"] = `Bearer ${bearerToken.trim()}`;
-    }
-
-    try {
-      const response = await fetch("/batchAnswerForm", {
-        method: "POST",
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          fields: fieldsToFill.map(({ id, prompt }) => ({
-            id,
-            type: "text",
-            question: prompt,
-          })),
-          context: contextPayload,
-          systemInstruction: systemInstruction.trim() || storedSystemInstruction || null,
-          model: selectedModel,
-          userProfile,
-          pairingToken,
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${response.status}: Batch autofill failed`);
-      }
-
-      const answers: Array<{ id: string; answer: string }> = Array.isArray(data.answers)
-        ? data.answers
-        : [];
-
-      // Map batch answers back onto the form and log each field.
-      const updates: Partial<FormValues> = {};
-      answers.forEach((ans, idx) => {
-        const matchField = fieldsToFill.find((f) => f.id === ans.id);
-        const key = matchField?.key ?? (fieldsToFill[idx]?.key as keyof FormValues);
-        if (!key) return;
-        updates[key] = ans.answer || "";
-        setActiveField(key);
-        addLog(`✅ [${idx + 1}/${fieldsToFill.length}] ${matchField?.label || key} (${data.modelUsed || selectedModel}): "${(ans.answer || "").slice(0, 36)}..."`);
-      });
-
-      setFormData((prev) => ({ ...prev, ...updates }));
-      setProgressText("");
-      setActiveField(null);
-      addLog(`🎉 Completed batch autofill in a single round-trip using ${data.modelUsed || selectedModel}!`);
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        addLog("⏹ Batch autofill cancelled by user.");
-        setProgressText("");
-      } else {
-        setErrorMsg(err.message || "Failed to execute batch autofill");
-        addLog(`❌ Batch autofill error: ${err.message}`);
-      }
-    } finally {
-      fillAllAbortRef.current = null;
-      setIsFillingAll(false);
-      setActiveField(null);
-      setProgressText("");
-    }
-  };
-
-  // Fix #7: Stop an in-flight batch autofill immediately.
-  const handleStopFillAll = () => {
-    if (fillAllAbortRef.current) {
-      fillAllAbortRef.current.abort();
-      fillAllAbortRef.current = null;
-    }
-    setIsFillingAll(false);
     setProgressText("");
     setActiveField(null);
-    addLog("⏹ Autofill stop requested.");
+    setIsFillingAll(false);
+    addLog(`🎉 Completed form autofill routine!`);
   };
 
   const handleClearForm = () => {
-    // Cancel any in-flight autofill before clearing.
-    if (fillAllAbortRef.current) {
-      fillAllAbortRef.current.abort();
-      fillAllAbortRef.current = null;
-    }
     setFormData({
       fullName: "",
       email: "",
@@ -451,29 +326,27 @@ export function InteractivePlayground({
           <div className="flex items-center gap-2">
             <button
               onClick={handleClearForm}
-              disabled={isFillingAll}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition border border-slate-700 disabled:opacity-40"
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition border border-slate-700"
             >
               Reset Form
             </button>
-            {isFillingAll ? (
-              // Fix #7: Stop button to abort a long-running batch autofill.
-              <button
-                onClick={handleStopFillAll}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Square className="w-3.5 h-3.5 fill-current" />
-                <span>{progressText || "Stop Autofill"}</span>
-              </button>
-            ) : (
-              <button
-                onClick={fillAllFields}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Batch Autofill Form with Gemini</span>
-              </button>
-            )}
+            <button
+              onClick={fillAllFields}
+              disabled={isFillingAll}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-violet-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+            >
+              {isFillingAll ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>{progressText || "Autofilling..."}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Autofill Entire Form with Gemini</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
