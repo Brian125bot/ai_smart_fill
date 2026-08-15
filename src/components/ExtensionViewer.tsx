@@ -46,7 +46,7 @@ export function ExtensionViewer() {
               <span>Manifest V3 Chrome Extension Source Package</span>
             </h3>
             <p className="text-xs text-slate-400 mt-1 max-w-2xl">
-              Inspect the exact production-ready source code for all extension files. You can copy any individual file or download the pre-bundled ZIP archive ready to load unpacked into Chrome.
+               Inspect the exact generated source code for all extension files. You can copy any individual file or download the ZIP archive to load unpacked into Chrome.
             </p>
           </div>
 
@@ -65,10 +65,10 @@ export function ExtensionViewer() {
           <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-1">
             <div className="font-semibold text-blue-300 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-blue-400" />
-              <span>Zero-Leak Security</span>
+               <span>Server-Side API Key</span>
             </div>
             <p className="text-[11px] text-slate-400">
-              No API keys or sensitive secrets are embedded in the extension files. All Gemini calls route through your local server-side proxy.
+               The Gemini API key is not embedded in the extension. Profile and document context can still be sent through the local server to Gemini.
             </p>
           </div>
 

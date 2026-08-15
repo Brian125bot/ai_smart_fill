@@ -48,7 +48,7 @@ export function InstallationGuide() {
           How to Install & Load the Extension in Chrome
         </h3>
         <p className="text-xs text-slate-400 max-w-xl mx-auto">
-          Follow these 4 simple steps to unpack and run your custom Gemini Form Autofill extension in Google Chrome, Brave, Edge, or any Chromium browser.
+           Follow these 5 simple steps to unpack and run your custom Gemini Form Autofill extension in Google Chrome, Brave, Edge, or any Chromium browser.
         </p>
 
         <div className="pt-2">
@@ -144,7 +144,7 @@ export function InstallationGuide() {
             </div>
 
             <p className="text-xs text-slate-400 leading-relaxed pt-1">
-              Paste your <strong>Dashboard Pairing ID</strong> from the <strong>Context & Profile Hub</strong> to automatically sync your master applicant background, custom Q&A answers, and grounding resume!
+               Paste the <strong>local pairing ID</strong> copied from the <strong>Context & Profile Hub</strong>. The current dashboard value is <code className="text-blue-300 font-mono">local-user-profile</code>; it identifies the server cache entry and is not an authentication credential.
             </p>
           </div>
         </div>
@@ -160,7 +160,7 @@ export function InstallationGuide() {
               <span>Configure Context on the Dashboard</span>
             </h4>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Use the <strong>"Context & Profile Hub"</strong> tab in this dashboard to manage your resume PDF, personal coordinates (LinkedIn, GitHub, contact info), and custom Q&As. The Chrome extension automatically reads this configuration when answering form questions!
+               Use the <strong>"Context & Profile Hub"</strong> tab to manage your resume PDF, personal coordinates (LinkedIn, GitHub, contact info), and custom Q&As. Click <strong>"Save & Sync Personas"</strong> before clicking <strong>"Sync Dashboard"</strong> in the extension popup.
             </p>
           </div>
         </div>
@@ -177,7 +177,7 @@ export function InstallationGuide() {
           <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
             <div className="font-semibold text-slate-200">Do I need an API key or token?</div>
             <p className="text-[11px] text-slate-400">
-              No. The local server proxies Gemini requests using the <code className="text-blue-300 font-mono">GEMINI_API_KEY</code> from your <code className="text-blue-300 font-mono">.env</code> file. No tokens are required in the extension.
+               The server needs <code className="text-blue-300 font-mono">GEMINI_API_KEY</code> in your <code className="text-blue-300 font-mono">.env</code> file for real Gemini requests, but the key is never placed in the extension. Enter the local pairing ID when you want the extension to load dashboard context; it is a cache lookup value, not authentication.
             </p>
           </div>
 

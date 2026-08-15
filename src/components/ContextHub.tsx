@@ -580,7 +580,7 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
             </div>
             <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
               Create targeted applicant personas with custom resumes, system prompts, and Q&As.
-              The Chrome Extension supports 1-click persona switching and <strong>sub-second batch form autofilling</strong>.
+               The Chrome Extension supports 1-click persona switching and <strong>single-request batch form autofilling</strong>.
             </p>
           </div>
 

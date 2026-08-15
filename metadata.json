@@ -1,6 +1,6 @@
 {
   "name": "Gemini Form Autofill Extension & Backend",
-  "description": "Local Node.js backend service and Manifest V3 Chrome Extension for automatic AI-powered form filling with centralized dashboard context configuration and multimodal PDF grounding.",
+  "description": "Local Node.js backend, React dashboard, and Manifest V3 Chromium extension for AI-powered form filling with persona context and multimodal PDF grounding.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

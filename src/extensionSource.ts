@@ -60,7 +60,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
         </div>
         <div>
           <h1 class="title">Gemini Form Autofill</h1>
-          <p class="subtitle">Cloud Sync & Persona Grounding</p>
+           <p class="subtitle">Local Dashboard Sync & Persona Grounding</p>
         </div>
       </div>
       <div id="statusBadge" class="status-badge status-idle">Ready</div>
@@ -78,7 +78,7 @@ export const POPUP_HTML = `<!DOCTYPE html>
               <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
               <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
             </svg>
-            <span>Dashboard Sync & Auth</span>
+             <span>Dashboard Context Sync</span>
           </div>
           <button type="button" id="syncFromDashboardBtn" class="sync-btn" title="Fetch latest personas, Q&As, and PDF from Dashboard">
             <svg id="syncIcon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -875,7 +875,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const syncBtnText = document.getElementById("syncBtnText");
     if (syncBtnText) syncBtnText.textContent = "Syncing...";
-    syncStatusBadge.innerHTML = '<span style="color: #60a5fa;">Fetching cloud persona & documents...</span>';
+      syncStatusBadge.innerHTML = '<span style="color: #60a5fa;">Fetching local dashboard persona & documents...</span>';
 
     try {
       const resp = await fetch(baseUrl + "/api/userContext/" + encodeURIComponent(pairingVal));
@@ -2022,7 +2022,7 @@ export const EXTENSION_FILES: ExtensionFile[] = [
     path: "manifest.json",
     type: "json",
     language: "json",
-    description: "Chrome Extension Manifest V3 configuration with declarative permissions and content script matching.",
+      description: "Generated Chromium Manifest V3 configuration with permissions and content script matching.",
     content: MANIFEST_JSON,
   },
   {
