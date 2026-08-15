@@ -137,5 +137,51 @@ describe('FileBackedContextStore', () => {
     const viaAlias = reloaded.get('x@y.com');
     expect(viaAlias?.profiles?.[0]?.profileFields?.customQAs).toHaveLength(1);
   });
-});
 
+  it('deleting an alias preserves the canonical context', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    const ctx = makeContext('canon-delete-alias', { email: 'delete@example.com', userId: 'delete-user' });
+    store.set('canon-delete-alias', ctx);
+    store.set('delete@example.com', ctx);
+    store.set('delete-user', ctx);
+
+    store.delete('delete@example.com');
+
+    expect(store.get('canon-delete-alias')).toBeDefined();
+    expect(store.get('delete@example.com')).toBeUndefined();
+    expect(store.get('delete-user')).toBeDefined();
+
+    const reloaded = new FileBackedContextStore(TEST_DATA_DIR);
+    expect(reloaded.get('canon-delete-alias')).toBeDefined();
+    expect(reloaded.get('delete@example.com')).toBeUndefined();
+    expect(reloaded.get('delete-user')).toBeDefined();
+  });
+
+  it('deleting the canonical token prunes all aliases', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    const ctx = makeContext('canon-delete-all', { email: 'all@example.com', userId: 'all-user' });
+    store.set('canon-delete-all', ctx);
+    store.set('all@example.com', ctx);
+    store.set('all-user', ctx);
+
+    store.delete('canon-delete-all');
+
+    expect(store.get('canon-delete-all')).toBeUndefined();
+    expect(store.get('all@example.com')).toBeUndefined();
+    expect(store.get('all-user')).toBeUndefined();
+
+    const reloaded = new FileBackedContextStore(TEST_DATA_DIR);
+    expect(reloaded.get('canon-delete-all')).toBeUndefined();
+    expect(reloaded.get('all@example.com')).toBeUndefined();
+    expect(reloaded.get('all-user')).toBeUndefined();
+  });
+
+  it('deleting a lowercase canonical token removes the canonical record', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    store.set('Canon-Delete-Lower', makeContext('Canon-Delete-Lower'));
+
+    store.delete('canon-delete-lower');
+
+    expect(store.get('Canon-Delete-Lower')).toBeUndefined();
+  });
+});

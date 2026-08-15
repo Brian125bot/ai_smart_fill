@@ -147,12 +147,26 @@ export class FileBackedContextStore implements ContextStore {
   delete(token: string): void {
     const lower = token.toLowerCase();
     const direct = this.cache.get(token) || this.cache.get(lower);
-    const canonical = direct ? direct.pairingToken : this.aliases.get(lower) || null;
+    const aliasTarget = this.aliases.get(lower);
+    const isAlias = Boolean(aliasTarget && (!direct || direct.pairingToken.toLowerCase() !== lower));
+
+    // Removing an alias must not remove the canonical context it points to.
+    if (isAlias) {
+      this.aliases.delete(lower);
+      this.persistAliases();
+      return;
+    }
+
+    const canonical = direct ? direct.pairingToken : token;
 
     if (canonical) {
       this.cache.delete(canonical);
       this.cache.delete(canonical.toLowerCase());
-      this.aliases.delete(canonical.toLowerCase());
+      for (const [alias, target] of this.aliases) {
+        if (target.toLowerCase() === canonical.toLowerCase()) {
+          this.aliases.delete(alias);
+        }
+      }
       try {
         const filePath = path.join(this.dataDir, canonicalFilename(canonical));
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -163,7 +177,6 @@ export class FileBackedContextStore implements ContextStore {
 
     this.cache.delete(token);
     this.cache.delete(lower);
-    this.aliases.delete(lower);
     this.persistAliases();
   }
 

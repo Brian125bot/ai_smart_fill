@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+Cross-review follow-up fixes:
+
+- **Persistence:** deleting an email or userId alias no longer deletes its canonical context; deleting the canonical token now removes all associated aliases and prevents dangling alias entries after reload.
+- **Classification:** semantic short-field hints are evaluated before the multiline `rows` fallback, preventing coupon codes, ZIPs, and nicknames rendered as tall textareas from entering the long-form pipeline.
+- **Batch errors:** a batch where every long-form field fails now returns HTTP 200 with `success: false` and structured per-field errors, matching the partial-answer contract.
+- Added regression coverage for alias deletion, classifier precedence, and single-field long-form failures.
+
 ## 1.0.1
 
 Bug fixes addressing the post-release code review:

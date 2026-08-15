@@ -83,4 +83,10 @@ describe('classifyField', () => {
     expect(classifyField({ tagName: 'div', maxLength: undefined, question: 'Tell us about yourself' })).toBe('long_form');
     expect(classifyField({ tagName: 'div', maxLength: undefined, question: 'Notes' })).toBe('short_text');
   });
+
+  it('checks semantic short hints before using rows as a long-form fallback', () => {
+    expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Coupon code' })).toBe('short_text');
+    expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Describe your experience' })).toBe('long_form');
+    expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Experience' })).toBe('long_form');
+  });
 });

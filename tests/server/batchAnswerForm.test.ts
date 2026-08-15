@@ -244,6 +244,23 @@ describe('POST /batchAnswerForm', () => {
     expect(lead.error).toBeTruthy();
   }, 30000);
 
+  it('returns 200 with success:false when every long-form field fails', async () => {
+    const ai = makeFakeAi(() => {
+      throw new Error('permanent generation failure');
+    });
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({
+      fields: [
+        { id: 'lead', question: 'Describe your leadership style', maxLength: 300, tagName: 'textarea', rows: 5 },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(false);
+    expect(res.body.answers[0].id).toBe('lead');
+    expect(res.body.answers[0].error).toContain('permanent generation failure');
+  });
+
   it('returns 500 (not silent success) for wrong-shaped JSON output', async () => {
     const ai = makeFakeAi(() => ({ text: JSON.stringify({ unexpected: 1 }) }));
     const app = await makeApp(ai);

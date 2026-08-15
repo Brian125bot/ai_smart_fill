@@ -59,6 +59,7 @@ const LONG_FORM_KEYWORDS = [
 const EMAIL_PATTERNS = /email|e-mail|@/i;
 const PHONE_PATTERNS = /\bphone\b|\btel\b|\bmobile\b|\bfax\b/i;
 const NUMERIC_PATTERNS = /years|age|number of|quantity|count|salary|compensation|gpa|grade/i;
+const SHORT_FORM_PATTERNS = /\bcoupon\b|\bpromo(?:tion)?\s+code\b|\bzip\b|\bpostal\b|\bnickname\b|\b(?:verification|access|reference)\s+code\b/i;
 
 function normalize(text: string): string {
   return (text || "").toLowerCase().trim();
@@ -91,15 +92,6 @@ export function classifyField(field: FieldClassificationInput): FieldCategory {
     return "short_text";
   }
 
-  // Textarea (or contenteditable div) with no explicit maxLength: use rows and
-  // keyword signals. A multiline field (rows >= 3) and no short maxLength is
-  // almost always a free-text essay, so treat it as long_form; single-row or
-  // unspecified-row textareas fall through to keyword/length heuristics below.
-  if ((tagName === "textarea" || tagName === "div") && field.maxLength === undefined) {
-    const rows = field.rows && field.rows > 0 ? field.rows : 0;
-    if (rows >= 3) return "long_form";
-  }
-
   // Keyword-based detection from question/placeholder/name
   const text = `${question} ${placeholder} ${name}`;
 
@@ -111,6 +103,17 @@ export function classifyField(field: FieldClassificationInput): FieldCategory {
   if (question.length > 80) return "long_form";
   for (const kw of LONG_FORM_KEYWORDS) {
     if (text.includes(kw)) return "long_form";
+  }
+
+  // Short semantic hints take precedence over the multiline fallback. Some
+  // sites render coupon codes, ZIPs, or nicknames as tall textareas.
+  if (SHORT_FORM_PATTERNS.test(text)) return "short_text";
+
+  // Textarea (or contenteditable div) with no explicit maxLength: use rows as
+  // a final signal after semantic hints have had a chance to classify the field.
+  if ((tagName === "textarea" || tagName === "div") && field.maxLength === undefined) {
+    const rows = field.rows && field.rows > 0 ? field.rows : 0;
+    if (rows >= 3) return "long_form";
   }
 
   // Large maxLength input

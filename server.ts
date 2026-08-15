@@ -952,7 +952,7 @@ Requirements:
       }
 
       if (allAnswers.length > 0 && successful.length === 0) {
-        res.status(500).json({
+        res.status(200).json({
           success: false,
           answers: allAnswers,
           error: "All fields failed to generate answers.",
