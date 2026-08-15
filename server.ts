@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { createContextStore, SyncedUserContext, ContextStore } from "./store";
 import { classifyField, FieldCategory, isLongForm } from "./fieldClassifier";
 import { retrieveRelevantQAs, QAEntry } from "./qaRetrieval";
+import { getContextType, looksLikeErrorLeak, logLeak } from "./errorLeak";
 
 dotenv.config();
 
@@ -571,14 +572,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         config
       );
 
-      // Clean out any technical diagnostic essays
-      const lower = (answer || "").toLowerCase();
-      if (
-        lower.includes("failed to execute 'fetch'") ||
-        lower.includes("non iso-8859-1") ||
-        lower.includes("based on the error message and context") ||
-        lower.includes("### the error")
-      ) {
+      const leak = looksLikeErrorLeak(answer || "");
+      if (leak.leaked) {
+        logLeak({
+          endpoint: "/answerQuestion",
+          question,
+          contextType: getContextType(context),
+          model: effectiveModel,
+          reason: leak.reason,
+          raw: answer || "",
+        });
         answer = "";
       }
 
@@ -910,13 +913,17 @@ Requirements:
           if (Array.isArray(parsedAnswers)) {
             parsedAnswers = parsedAnswers.map((ans) => {
               const val = typeof ans?.answer === "string" ? ans.answer : "";
-              const lower = val.toLowerCase();
-              if (
-                lower.includes("failed to execute 'fetch'") ||
-                lower.includes("non iso-8859-1") ||
-                lower.includes("based on the error message and context") ||
-                lower.includes("### the error")
-              ) {
+              const leak = looksLikeErrorLeak(val);
+              if (leak.leaked) {
+                logLeak({
+                  endpoint: "/batchAnswerForm",
+                  fieldId: ans?.id,
+                  question: ans?.question || "",
+                  contextType: getContextType(context),
+                  model: effectiveModel,
+                  reason: leak.reason,
+                  raw: val,
+                });
                 return { ...ans, answer: "" };
               }
               return { ...ans, style: "short" };
@@ -966,7 +973,21 @@ Requirements:
               error: r.__error,
             });
           } else {
-            allAnswers.push(r);
+            const leak = looksLikeErrorLeak(typeof r?.answer === "string" ? r.answer : "");
+            if (leak.leaked) {
+              logLeak({
+                endpoint: "/batchAnswerForm#longForm",
+                fieldId: c.field.id,
+                question: c.field.question,
+                contextType: getContextType(context),
+                model: r?.model || effectiveModel,
+                reason: leak.reason,
+                raw: r.answer || "",
+              });
+              allAnswers.push({ ...r, answer: "" });
+            } else {
+              allAnswers.push(r);
+            }
           }
         });
       }
