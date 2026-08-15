@@ -114,6 +114,7 @@ export const SyncProfileSchema = z
     profileFields: UserProfileFieldsSchema.optional(),
     userProfile: UserProfileFieldsSchema.optional(),
     pdfData: z.string().nullable().optional(),
+    pdfFilePath: z.string().nullable().optional(),
     pdfName: z.string().nullable().optional(),
     pdfSize: z.number().nullable().optional(),
     pdfMimeType: z.string().nullable().optional(),

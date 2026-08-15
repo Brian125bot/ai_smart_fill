@@ -38,6 +38,13 @@ class FailingStore implements ContextStore {
   size(): number {
     return this.cache.size;
   }
+  savePdf(token: string, base64Data: string): string {
+    return `pdfs/${token}.pdf`;
+  }
+  readPdf(token: string): Buffer | null {
+    return null;
+  }
+
 }
 
 beforeEach(() => {

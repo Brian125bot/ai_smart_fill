@@ -71,7 +71,7 @@ export interface UserContextConfig {
   pdfName?: string;
   pdfSize?: number;
   pdfMimeType?: string;
-  pdfData?: string;
+  pdfFilePath?: string;
   textContext?: string;
   profileFields?: UserProfileFields;
   updatedAt?: string | null;
