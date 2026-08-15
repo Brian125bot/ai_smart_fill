@@ -153,6 +153,16 @@ describe('content.js', () => {
       expect(changeEvent).toHaveBeenCalled();
     });
 
+    it('sets textarea value without invoking the input-only setter', () => {
+      const textarea = document.createElement('textarea');
+      document.body.append(textarea);
+
+      const content = loadContent(makeChrome());
+
+      expect(() => content.applyAnswerToField(textarea, 'long-form answer')).not.toThrow();
+      expect(textarea.value).toBe('long-form answer');
+    });
+
     it('selects a matching option and leaves no-match selects unchanged', () => {
       const select = document.createElement('select');
       for (const opt of ['Select...', 'No', 'Yes']) {

@@ -1868,11 +1868,13 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
       }
     } else {
       // Use native value setter to trigger React/Vue controlled component updates
-      const nativeSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, 'value'
-      )?.set || Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype, 'value'
-      )?.set;
+      // The input and textarea setters validate their receiver type. Selecting
+      // the input setter for a textarea throws "Illegal invocation".
+      const valuePrototype =
+        field.tagName.toLowerCase() === "textarea"
+          ? window.HTMLTextAreaElement.prototype
+          : window.HTMLInputElement.prototype;
+      const nativeSetter = Object.getOwnPropertyDescriptor(valuePrototype, "value")?.set;
 
       if (nativeSetter) {
         nativeSetter.call(field, answer);
