@@ -233,6 +233,85 @@ export function synthesizeProfileContext(
   return lines.join("\n");
 }
 
+export interface ResolvedGenerationContext {
+  context: GeminiContext | null;
+  systemInstruction: string;
+  userProfile: UserProfileFields | null;
+  requestedModel: string;
+  cached?: SyncedUserContext;
+}
+
+export interface ResolveGenerationContextOptions {
+  store: ContextStore;
+  pairingToken?: string | null;
+  userId?: string | null;
+  context?: GeminiContext | null;
+  systemInstruction?: string | null;
+  userProfile?: UserProfileFields | null;
+  model?: string | null;
+}
+
+export async function resolveGenerationContext(
+  options: ResolveGenerationContextOptions
+): Promise<ResolvedGenerationContext> {
+  const token = (options.pairingToken || options.userId || "").trim();
+  let context: GeminiContext | null = options.context || null;
+  let systemInstruction: string = options.systemInstruction || "";
+  let userProfile: UserProfileFields | null = options.userProfile || null;
+  let requestedModel: string =
+    options.model && options.model.trim() ? options.model.trim() : "";
+
+  let cached: SyncedUserContext | undefined;
+  if (token) {
+    cached = options.store.get(token) || options.store.get(token.toLowerCase());
+    if (cached) {
+      if (!userProfile) userProfile = cached.userProfile || null;
+      if (!systemInstruction) systemInstruction = cached.systemInstruction || "";
+      if (!requestedModel) requestedModel = cached.selectedModel || "";
+
+      if (!context) {
+        if (cached.pdfFilePath || cached.pdfData) {
+          const pdfBuf = await options.store.readPdf(token);
+          if (pdfBuf) {
+            context = {
+              type: "pdf",
+              data: pdfBuf.toString("base64"),
+              mimeType: cached.pdfMimeType || "application/pdf",
+            };
+          } else if (cached.pdfData) {
+            context = {
+              type: "pdf",
+              data: cached.pdfData,
+              mimeType: cached.pdfMimeType || "application/pdf",
+            };
+          } else {
+            console.warn(
+              `[server] Referenced PDF file "${cached.pdfFilePath}" for token "${token}" not found on disk. Gracefully degrading.`
+            );
+          }
+        } else if (cached.textContext) {
+          context = {
+            type: "text",
+            data: cached.textContext,
+          };
+        }
+      }
+    }
+  }
+
+  if (!requestedModel) {
+    requestedModel = DEFAULT_GEMINI_MODEL;
+  }
+
+  return {
+    context,
+    systemInstruction,
+    userProfile,
+    requestedModel,
+    cached,
+  };
+}
+
 function mostCommon(values: string[]): string {
   const counts = new Map<string, number>();
   for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
@@ -351,7 +430,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   // Dashboard & Extension Sync Endpoints
   // ==========================================
 
-  app.post("/api/syncProfile", (req: Request, res: Response): void => {
+  app.post("/api/syncProfile", async (req: Request, res: Response): Promise<void> => {
     try {
       const parsed = SyncProfileSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -385,6 +464,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
           ? body.profiles.find((p) => p.id === body.activeProfileId) || body.profiles[0]
           : null;
 
+      let pdfFilePath: string | null = body.pdfFilePath || null;
+      const pdfBase64 = body.pdfData || activeProfile?.pdfFile?.base64;
+      if (pdfBase64) {
+        const savedPath = await store.savePdf(pairingToken, pdfBase64);
+        if (savedPath) {
+          pdfFilePath = savedPath;
+        } else {
+          res.status(500).json({
+            success: false,
+            error: "Failed to save PDF attachment.",
+          });
+          return;
+        }
+      }
+
       const syncedContext: SyncedUserContext = {
         userId: body.userId || body.uid || pairingToken,
         pairingToken,
@@ -397,9 +491,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         selectedModel: body.selectedModel || activeProfile?.selectedModel || DEFAULT_GEMINI_MODEL,
         usePageContext: typeof body.usePageContext === "boolean" ? body.usePageContext : true,
         userProfile: body.profileFields || body.userProfile || activeProfile?.profileFields || {},
-        pdfFilePath: (body.pdfData || activeProfile?.pdfFile?.base64)
-          ? store.savePdf(pairingToken, body.pdfData || activeProfile?.pdfFile?.base64 || "")
-          : (body.pdfFilePath || null),
+        pdfFilePath,
         pdfName: body.pdfName || activeProfile?.pdfFile?.name || null,
         pdfSize: body.pdfSize || activeProfile?.pdfFile?.size || null,
         pdfMimeType: body.pdfMimeType || activeProfile?.pdfFile?.mimeType || "application/pdf",
@@ -512,7 +604,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     }
   });
 
-  app.post("/api/purgeContext", (req: Request, res: Response): void => {
+  app.post("/api/purgeContext", async (req: Request, res: Response): Promise<void> => {
     try {
       const token = (
         req.body?.pairingToken ||
@@ -538,7 +630,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         return;
       }
 
-      if (!store.delete(token)) {
+      const deleted = await store.delete(token);
+      if (!deleted) {
         res.status(500).json({
           success: false,
           error: "Failed to delete persisted context from disk.",
@@ -574,49 +667,22 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       const body: AnswerQuestionInput = parsed.data;
 
       const question = body.question.trim();
-      const pairingToken = (body.pairingToken || body.userId || "").trim();
 
-      let context: GeminiContext | null | undefined = body.context;
-      let systemInstruction: string | null | undefined = body.systemInstruction;
-      let userProfile: UserProfileFields | null | undefined = body.userProfile;
-      let requestedModel: string | null =
-        body.model && body.model.trim() ? body.model.trim() : null;
+      const {
+        context,
+        systemInstruction,
+        userProfile,
+        requestedModel,
+      } = await resolveGenerationContext({
+        store,
+        pairingToken: body.pairingToken,
+        userId: body.userId,
+        context: body.context,
+        systemInstruction: body.systemInstruction,
+        userProfile: body.userProfile,
+        model: body.model,
+      });
 
-      if (pairingToken) {
-        const cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
-        if (cached) {
-          if (!userProfile) userProfile = cached.userProfile;
-          if (!systemInstruction) systemInstruction = cached.systemInstruction;
-          if (!requestedModel) requestedModel = cached.selectedModel || null;
-          if (!context && (cached.pdfFilePath || (cached as SyncedUserContext & { pdfData?: string }).pdfData)) {
-            const pdfBuf = store.readPdf(pairingToken);
-            if (pdfBuf) {
-              context = {
-                type: "pdf",
-                data: pdfBuf.toString("base64"),
-                mimeType: cached.pdfMimeType || "application/pdf",
-              };
-            } else if ((cached as SyncedUserContext & { pdfData?: string }).pdfData) {
-              context = {
-                type: "pdf",
-                data: (cached as SyncedUserContext & { pdfData?: string }).pdfData,
-                mimeType: cached.pdfMimeType || "application/pdf",
-              };
-            } else {
-              console.warn(
-                `[server] Referenced PDF file "${cached.pdfFilePath}" for token "${pairingToken}" not found on disk. Gracefully degrading.`
-              );
-            }
-          } else if (!context && cached.textContext) {
-            context = {
-              type: "text",
-              data: cached.textContext,
-            };
-          }
-        }
-      }
-
-      if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const profileContextStr = synthesizeProfileContext(userProfile, question);
 
       let contents: string | Content;
@@ -837,49 +903,23 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       const body: BatchAnswerFormInput = parsed.data;
       const fields: BatchFormField[] = body.fields;
 
-      const pairingToken = (body.pairingToken || body.userId || "").trim();
-      let context: GeminiContext | null | undefined = body.context;
-      let systemInstruction: string | null | undefined = body.systemInstruction;
-      let userProfile: UserProfileFields | null | undefined = body.userProfile;
-      let requestedModel: string | null =
-        body.model && body.model.trim() ? body.model.trim() : null;
+      const {
+        context,
+        systemInstruction,
+        userProfile,
+        requestedModel: initialRequestedModel,
+        cached,
+      } = await resolveGenerationContext({
+        store,
+        pairingToken: body.pairingToken,
+        userId: body.userId,
+        context: body.context,
+        systemInstruction: body.systemInstruction,
+        userProfile: body.userProfile,
+        model: body.model,
+      });
 
-      let cached: SyncedUserContext | undefined;
-      if (pairingToken) {
-        cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
-        if (cached) {
-          if (!userProfile) userProfile = cached.userProfile;
-          if (!systemInstruction) systemInstruction = cached.systemInstruction;
-          if (!requestedModel) requestedModel = cached.selectedModel || null;
-          if (!context && (cached.pdfFilePath || (cached as SyncedUserContext & { pdfData?: string }).pdfData)) {
-            const pdfBuf = store.readPdf(pairingToken);
-            if (pdfBuf) {
-              context = {
-                type: "pdf",
-                data: pdfBuf.toString("base64"),
-                mimeType: cached.pdfMimeType || "application/pdf",
-              };
-            } else if ((cached as SyncedUserContext & { pdfData?: string }).pdfData) {
-              context = {
-                type: "pdf",
-                data: (cached as SyncedUserContext & { pdfData?: string }).pdfData,
-                mimeType: cached.pdfMimeType || "application/pdf",
-              };
-            } else {
-              console.warn(
-                `[server] Referenced PDF file "${cached.pdfFilePath}" for token "${pairingToken}" not found on disk. Gracefully degrading.`
-              );
-            }
-          } else if (!context && cached.textContext) {
-            context = {
-              type: "text",
-              data: cached.textContext,
-            };
-          }
-        }
-      }
-
-      if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
+      let requestedModel = initialRequestedModel;
       const pageContext = body.pageContext;
 
       let personaTone = "professional";

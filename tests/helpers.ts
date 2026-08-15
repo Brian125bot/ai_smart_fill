@@ -85,6 +85,8 @@ export class InMemoryContextStore implements ContextStore {
           this.aliases.delete(alias);
         }
       }
+      this.pdfs.delete(canonical);
+      this.pdfs.delete(canonical.toLowerCase());
     }
 
     this.cache.delete(token);
@@ -108,7 +110,8 @@ export class InMemoryContextStore implements ContextStore {
     return distinct.size;
   }
 
-  savePdf(token: string, base64Data: string): string {
+  async savePdf(token: string, base64Data: string): Promise<string | null> {
+    if (!base64Data || typeof base64Data !== 'string') return null;
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
     const buffer = Buffer.from(cleanBase64, "base64");
     this.pdfs.set(token, buffer);
@@ -116,7 +119,7 @@ export class InMemoryContextStore implements ContextStore {
     return `pdfs/${token}.pdf`;
   }
 
-  readPdf(token: string): Buffer | null {
+  async readPdf(token: string): Promise<Buffer | null> {
     return this.pdfs.get(token) || this.pdfs.get(token.toLowerCase()) || null;
   }
 }

@@ -100,6 +100,54 @@ describe('POST /batchAnswerForm', () => {
     expect(captured.contents.parts[0].inlineData.data).toBe('XYZ');
   });
 
+  it('hydrates cached PDF context from store for batchAnswerForm', async () => {
+    let captured: any;
+    const ai = makeFakeAi((args) => {
+      captured = args;
+      return { text: JSON.stringify([{ id: 'full_name', answer: 'Ada' }]) };
+    });
+    const store = new InMemoryContextStore();
+    await store.savePdf('batch-pdf-tok', 'data:application/pdf;base64,BATCHPDFDATA');
+    store.set('batch-pdf-tok', {
+      pairingToken: 'batch-pdf-tok',
+      pdfFilePath: 'pdfs/batch-pdf-tok.pdf',
+      pdfMimeType: 'application/pdf',
+      updatedAt: new Date().toISOString(),
+    });
+
+    const app = await makeApp(ai, store);
+    const res = await request(app).post('/batchAnswerForm').send({
+      pairingToken: 'batch-pdf-tok',
+      fields: FIELDS,
+    });
+
+    expect(res.status).toBe(200);
+    expect(captured.contents.parts[0].inlineData.data).toBe('BATCHPDFDATA');
+  });
+
+  it('degrades gracefully when cached PDF file is missing in batchAnswerForm', async () => {
+    let captured: any;
+    const ai = makeFakeAi((args) => {
+      captured = args;
+      return { text: JSON.stringify([{ id: 'full_name', answer: 'Ada' }]) };
+    });
+    const store = new InMemoryContextStore();
+    store.set('missing-pdf-tok', {
+      pairingToken: 'missing-pdf-tok',
+      pdfFilePath: 'pdfs/nonexistent.pdf',
+      updatedAt: new Date().toISOString(),
+    });
+
+    const app = await makeApp(ai, store);
+    const res = await request(app).post('/batchAnswerForm').send({
+      pairingToken: 'missing-pdf-tok',
+      fields: FIELDS,
+    });
+
+    expect(res.status).toBe(200);
+    expect(typeof captured.contents).toBe('string');
+  });
+
   it('classifies fields and routes long-form to dedicated prompts', async () => {
     const callLog: string[] = [];
     const ai = makeFakeAi((args) => {

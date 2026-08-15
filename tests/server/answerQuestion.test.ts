@@ -101,6 +101,48 @@ describe('POST /answerQuestion', () => {
     expect(captured.config.systemInstruction).toBe('cached-instruction');
   });
 
+  it('hydrates cached PDF context from store when pairingToken is supplied', async () => {
+    let captured: any;
+    const ai = makeFakeAi((args) => {
+      captured = args;
+      return { text: 'Answer from PDF' };
+    });
+    const app = await makeApp(ai);
+
+    await request(app).post('/api/syncProfile').send({
+      pairingToken: 'pdf-token',
+      pdfData: 'data:application/pdf;base64,PDFDATA123',
+    });
+
+    const res = await request(app)
+      .post('/answerQuestion')
+      .send({ question: 'Summarize document', pairingToken: 'pdf-token' });
+
+    expect(res.status).toBe(200);
+    expect(captured.contents.parts[0].inlineData.data).toBe('PDFDATA123');
+  });
+
+  it('degrades gracefully when cached PDF file is missing on disk', async () => {
+    let captured: any;
+    const ai = makeFakeAi((args) => {
+      captured = args;
+      return { text: 'Answer without PDF' };
+    });
+    const app = await makeApp(ai);
+
+    await request(app).post('/api/syncProfile').send({
+      pairingToken: 'missing-pdf-token',
+      pdfFilePath: 'pdfs/nonexistent.pdf',
+    });
+
+    const res = await request(app)
+      .post('/answerQuestion')
+      .send({ question: 'Question?', pairingToken: 'missing-pdf-token' });
+
+    expect(res.status).toBe(200);
+    expect(typeof captured.contents).toBe('string');
+  });
+
   it('cleans diagnostic essay answers to an empty string', async () => {
     const ai = makeFakeAi(() => ({
       text: "Failed to execute 'fetch' on 'Window' — please check the network.",

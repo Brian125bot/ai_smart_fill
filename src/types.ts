@@ -72,6 +72,8 @@ export interface UserContextConfig {
   pdfSize?: number;
   pdfMimeType?: string;
   pdfFilePath?: string;
+  /** @deprecated Legacy inline PDF storage. Use pdfFilePath instead. */
+  pdfData?: string;
   textContext?: string;
   profileFields?: UserProfileFields;
   updatedAt?: string | null;
