@@ -14,6 +14,7 @@ Gemini Form Autofill is a local dashboard, server-side Gemini proxy, and Chromiu
 - Configure per-persona answer tone (professional/conversational/formal) and length strategy (concise/balanced/fill_limit).
 - Persist synced profiles to local JSON files that survive server restarts.
 - Save accepted answers back to the persona's Q&A bank via `POST /api/rememberAnswer`.
+- Rate-limited on all routes (120 req/min on `/api`, 30 req/min on AI-generation routes).
 - Maintain multiple persona profiles in the dashboard and switch the active profile before syncing it to the extension.
 - Select one of the configured Gemini model IDs or provide a custom model identifier.
 - Download a generated extension ZIP containing the Manifest V3 source files and root-level icons.
@@ -57,8 +58,8 @@ See the detailed documentation:
 
 ## Prerequisites
 
-- Node.js 18 or newer.
-- npm. Bun is also compatible with the repository's `bun.lock`.
+- Node.js 18 or newer (Node.js 22+ recommended).
+- npm 10+.
 - A Gemini API key for real model requests.
 
 ## Setup
@@ -82,15 +83,15 @@ Open `http://localhost:3000`. The server binds to `127.0.0.1` by default. `HOST`
 
 ### Environment Variables
 
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `GEMINI_API_KEY` | For real AI calls | None | Server-side Gemini credential. |
-| `HOST` | No | `127.0.0.1` | Server bind address. |
-| `APP_URL` | No | `null` | Optional application URL reported by `/api/health`. |
+| Variable         | Required          | Default     | Purpose                                             |
+| ---------------- | ----------------- | ----------- | --------------------------------------------------- |
+| `GEMINI_API_KEY` | For real AI calls | None        | Server-side Gemini credential.                      |
+| `HOST`           | No                | `127.0.0.1` | Server bind address.                                |
+| `APP_URL`        | No                | `null`      | Optional application URL reported by `/api/health`. |
 
 ## Build and Run
 
-Build the frontend and bundled production server:
+Install dependencies, then build the frontend and bundled production server:
 
 ```bash
 npm run build
@@ -124,16 +125,16 @@ The extension accepts either `/answerQuestion` or `/batchAnswerForm` as the conf
 
 ## API Summary
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/health` | Server status, configured model list, URL, and API-key status. |
-| `GET` | `/api/models` | Full supported-model metadata. |
-| `POST` | `/api/syncProfile` | Store dashboard context in the file-backed pairing store. |
-| `POST` | `/api/purgeContext` | Delete stored user context file and aliases from memory and disk. |
-| `GET` | `/api/userContext/:token` | Retrieve cached context by URL-encoded token. |
-| `POST` | `/api/userContext` | Retrieve cached context by body or query token. |
-| `POST` | `/answerQuestion` | Generate one concise answer. |
-| `POST` | `/batchAnswerForm` | Generate structured answers for a non-empty field array. |
+| Method | Route                     | Purpose                                                           |
+| ------ | ------------------------- | ----------------------------------------------------------------- |
+| `GET`  | `/api/health`             | Server status, configured model list, URL, and API-key status.    |
+| `GET`  | `/api/models`             | Full supported-model metadata.                                    |
+| `POST` | `/api/syncProfile`        | Store dashboard context in the file-backed pairing store.         |
+| `POST` | `/api/purgeContext`       | Delete stored user context file and aliases from memory and disk. |
+| `GET`  | `/api/userContext/:token` | Retrieve cached context by URL-encoded token.                     |
+| `POST` | `/api/userContext`        | Retrieve cached context by body or query token.                   |
+| `POST` | `/answerQuestion`         | Generate one concise answer.                                      |
+| `POST` | `/batchAnswerForm`        | Generate structured answers for a non-empty field array.          |
 
 The AI routes intentionally do not use the `/api` prefix. Request and response schemas are documented in [docs/api.md](docs/api.md).
 
@@ -141,7 +142,6 @@ The AI routes intentionally do not use the `/api` prefix. Request and response s
 
 ```bash
 npm run lint
-npm run build
 npm test
 npm run test:watch
 npm run test:coverage
@@ -163,7 +163,8 @@ Live tests make real network requests and may consume API quota. Coverage thresh
 - Profile data and PDF data are stored in browser storage and may be sent to Gemini as request context.
 - The extension requests access to all URLs so it can inspect forms on arbitrary pages. Review this permission before using it with sensitive forms.
 - CORS allows local web origins and browser-extension origins; this is not a substitute for authentication.
-- The Express JSON and URL-encoded body limit is `50mb`, including base64 PDF payloads.
+- Rate limiting is enforced on all routes (120 req/min on `/api`, 30 req/min on AI-generation routes), returning HTTP 429 with `Retry-After` when exceeded.
+- The Express JSON body limit is `50mb`, including base64 PDF payloads. The unused URL-encoded body parser was removed.
 - Remote or public hosting is not supported by the current security and persistence model.
 
 Read [docs/security-and-limitations.md](docs/security-and-limitations.md) before using the project with sensitive personal or application data.
@@ -172,11 +173,17 @@ Read [docs/security-and-limitations.md](docs/security-and-limitations.md) before
 
 ```text
 ├── server.ts                  # Express API, Gemini proxy, and production server
+├── store.ts                   # File-backed persistence store
+├── fieldClassifier.ts         # Short-form vs long-form field classification
+├── qaRetrieval.ts             # Saved Q&A relevance scoring
+├── errorLeak.ts               # Structural error-leak detection
 ├── src/
 │   ├── App.tsx                # Dashboard shell and tabs
 │   ├── components/            # Dashboard, playground, extension, and guide UI
-│   ├── extensionSource.ts     # Generated Manifest V3 source files
+│   ├── extensionSource.ts     # Generated Manifest V3 source files (string exports)
+│   ├── extension/             # Generated extension source modules
 │   ├── types.ts               # Shared profile, request, and response types
+│   ├── validation.ts          # Zod request-body schemas and error formatting
 │   └── utils/zipGenerator.ts  # ZIP and icon generation
 ├── tests/
 │   ├── server/                # HTTP and Gemini fallback tests
@@ -186,6 +193,7 @@ Read [docs/security-and-limitations.md](docs/security-and-limitations.md) before
 ├── docs/                      # Architecture, API, extension, and workflow docs
 ├── package.json               # Scripts and dependencies
 ├── vitest.config.ts           # Test environments and coverage thresholds
+├── eslint.config.js           # ESLint flat config
 └── .env.example               # Safe environment template
 ```
 

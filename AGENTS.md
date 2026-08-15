@@ -12,7 +12,7 @@
 
 - Setup: `npm install`, then `cp .env.example .env`; set `GEMINI_API_KEY` only for real requests.
 - Development: `npm run dev` starts Express/Vite on port `3000`; `HOST` changes the bind address. `npm run build` creates the frontend and `dist/server.cjs`; `npm start` runs that bundle.
-- Checks: run `npm run lint` (`tsc --noEmit`), `npm test`, `npm run build` for runtime/packaging changes, then `npm run test:coverage` before publishing.
+- Checks: run `npm run lint` (`tsc --noEmit` and ESLint), `npm test`, `npm run build` for runtime/packaging changes, then `npm run test:coverage` before publishing.
 - Focused test: `npx vitest run tests/server/batchAnswerForm.test.ts`; watch mode is `npm run test:watch`.
 - Live Gemini tests are opt-in and may consume quota: `RUN_LIVE=1 npx vitest run tests/e2e/live.gemini.test.ts`.
 
@@ -26,5 +26,5 @@
 ## Commit & Publish Workflow
 
 - History uses concise prefixes such as `feat:`, `fix:`, `docs:`, and `refactor:`. Keep commits scoped and run the checks above before release tags.
-- There is no CI workflow; local checks are the source of truth. Never commit `.env`, credentials, `data/`, `dist/`, or coverage output.
+- There is a CI workflow (`.github/workflows/ci.yml`) that enforces typecheck, lint, test, and build with a 10-minute timeout; local checks remain necessary for live tests and coverage. Never commit `.env`, credentials, `data/`, `dist/`, or coverage output.
 - The configured `origin` is HTTPS, but publishing uses SSH: `git push git@github.com:Brian125bot/ai_smart_fill.git main --tags`. Verify published refs with `git ls-remote git@github.com:Brian125bot/ai_smart_fill.git`; the local `origin/main` tracking ref may remain stale after an SSH push.

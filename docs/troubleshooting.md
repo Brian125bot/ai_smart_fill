@@ -70,6 +70,10 @@ Confirm the file is a PDF and that the combined JSON request is below the `50mb`
 
 The server retries `503`, `429`, and model-not-found style failures and then tries the configured fallback model chain. Non-transient errors return immediately. Check the server logs and `/api/models` when a model ID is rejected.
 
+## The server returns 429 Too Many Requests
+
+All routes are rate-limited. `/api/*` routes allow 120 requests per minute; AI-generation routes (`/answerQuestion`, `/batchAnswerForm`) allow 30 requests per minute. The response includes `Retry-After` indicating how many seconds to wait. Slow down your request rate or restart the server to reset the counters.
+
 ## The ZIP extension shows missing icons
 
 Regenerate the ZIP from the dashboard and verify that `icon16.png`, `icon48.png`, and `icon128.png` are at the archive root beside `manifest.json`. Do not move them into an `icons/` directory unless the manifest paths are changed as well.

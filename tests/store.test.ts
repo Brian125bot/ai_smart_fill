@@ -123,7 +123,7 @@ describe('FileBackedContextStore', () => {
     const store = new FileBackedContextStore(TEST_DATA_DIR);
     const ctx = makeContext('canon', {
       email: 'x@y.com',
-      profiles: [{ id: 'p1', profileFields: { customQAs: [] } }],
+      profiles: [{ id: 'p1', name: 'P1', profileFields: { customQAs: [] } }],
     });
     store.set('canon', ctx);
     store.set('x@y.com', ctx); // alias

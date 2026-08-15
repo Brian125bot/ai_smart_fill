@@ -6,15 +6,15 @@ The dashboard generates a Chromium Manifest V3 extension package in the browser.
 
 The ZIP contains these seven source files:
 
-| File | Role |
-| --- | --- |
+| File            | Role                                                                                |
+| --------------- | ----------------------------------------------------------------------------------- |
 | `manifest.json` | Manifest V3 metadata, permissions, service worker, and content-script declarations. |
-| `popup.html` | Popup configuration markup. |
-| `popup.css` | Popup styling. |
-| `popup.js` | Popup settings, persona sync, PDF upload, and test actions. |
-| `background.js` | Service-worker proxy for answering requests. |
-| `content.js` | Field detection, batch requests, and value application. |
-| `content.css` | Floating autofill controls and status styling. |
+| `popup.html`    | Popup configuration markup.                                                         |
+| `popup.css`     | Popup styling.                                                                      |
+| `popup.js`      | Popup settings, persona sync, PDF upload, and test actions.                         |
+| `background.js` | Service-worker proxy for answering requests.                                        |
+| `content.js`    | Field detection, batch requests, and value application.                             |
+| `content.css`   | Floating autofill controls and status styling.                                      |
 
 The ZIP generator also creates `icon16.png`, `icon48.png`, and `icon128.png` at the archive root. These paths match the manifest references.
 

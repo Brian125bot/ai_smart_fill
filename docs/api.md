@@ -2,7 +2,9 @@
 
 The server listens on port `3000` by default. The dashboard uses the same origin in normal operation. The extension can call the server directly through its configured endpoint.
 
-The JSON body limit is `50mb` for both JSON and URL-encoded requests. This accommodates base64 PDF context but does not make large document uploads efficient.
+The JSON body limit is `50mb`. This accommodates base64 PDF context but does not make large document uploads efficient. Unknown JSON keys are rejected on `answerQuestion`, `batchAnswerForm`, and `rememberAnswer`. `syncProfile` accepts extra fields for forward compatibility with extension payloads.
+
+All routes are rate-limited. `/api/*` routes allow 120 requests per minute; AI-generation routes (`/answerQuestion`, `/batchAnswerForm`) allow 30 requests per minute. Responses return `429` with `Retry-After` and `X-RateLimit-*` headers when the limit is exceeded.
 
 ## CORS
 
@@ -52,7 +54,7 @@ Custom model identifiers are accepted by the answering routes, but their availab
 
 ## `POST /api/syncProfile`
 
-Stores dashboard context in the process-local cache. One of `pairingToken`, `userId`, `uid`, or `email` is required. The dashboard currently sends `pairingToken: "local-user-profile"`.
+Stores dashboard context in the process-local cache. At least one of `pairingToken`, `userId`, `uid`, or `email` is required. The dashboard currently sends `pairingToken: "local-user-profile"`.
 
 Example:
 
@@ -85,7 +87,7 @@ Success response:
 }
 ```
 
-Missing identifiers return `400`.
+Missing identifiers return `400`; a disk-write failure returns `500`.
 
 ## `GET /api/userContext/:token`
 
@@ -95,7 +97,7 @@ Retrieves cached context using a URL-encoded pairing token, user ID, or email.
 curl http://localhost:3000/api/userContext/local-user-profile
 ```
 
-Success returns `{ "success": true, "source": "server_cache", "context": ... }`. An unknown token returns `404`. Synced context is stored in plaintext JSON files in `data/` and survives server restarts.
+Success returns `{ "success": true, "source": "server_cache", "context": ... }`. An unknown token returns `404`. A malformed URI-encoded token returns `400`. Synced context is stored in plaintext JSON files in `data/` and survives server restarts.
 
 ## `POST /api/userContext`
 
@@ -106,7 +108,6 @@ curl -X POST 'http://localhost:3000/api/userContext?token=local-user-profile'
 ```
 
 Missing identifiers return `400`; unknown identifiers return `404`.
-
 
 ## `POST /api/purgeContext`
 
@@ -133,7 +134,7 @@ Success response:
 }
 ```
 
-Missing identifiers return `400`. Unknown tokens return `404`.
+Unknown tokens return `404`. A failed disk deletion returns `500`.
 
 ## `POST /answerQuestion`
 
@@ -169,7 +170,7 @@ Success response:
 }
 ```
 
-Invalid questions return `400`. Gemini or server failures return `500` with an `error` string.
+Invalid questions return `400`. Gemini or server failures return `500` with an `error` string. Persistence failures (disk write errors) also return `500`.
 
 ## `POST /batchAnswerForm`
 
@@ -236,7 +237,7 @@ Success response:
 }
 ```
 
-Invalid fields return `400`. If Gemini returns unparseable structured output or another generation error, the route returns `500` with `success: false`, `answers: []`, and an `error` message.
+Invalid fields return `400` with a `details` array listing each schema violation. If Gemini returns unparseable structured output or another generation error, the route returns `500` with `success: false`, `answers: []`, and an `error` message. Persistence failures also return `500`.
 
 Long-form answers include a `style: "long_form"` field and may include a `model` field indicating which model generated that specific answer.
 
@@ -266,7 +267,7 @@ Request shape:
 }
 ```
 
-The saved Q&A is available for future Q&A retrieval scoring. Returns `400` for missing fields or `404` for unknown tokens/profiles.
+The saved Q&A is available for future Q&A retrieval scoring. Returns `400` for missing or whitespace-only fields, `404` for unknown tokens/profiles, and `500` when the context store fails to persist the updated Q&A bank.
 
 ## Model Fallback Behavior
 

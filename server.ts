@@ -13,6 +13,7 @@ import {
   BatchAnswerFormSchema,
   SyncProfileSchema,
   RememberAnswerSchema,
+  formatZodErrors,
   AnswerQuestionInput,
   BatchAnswerFormInput,
   SyncProfileInput,
@@ -276,9 +277,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   const store = options.contextStore || createContextStore();
 
   app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // Rate limiting for local abuse prevention
   const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 120,
@@ -287,6 +286,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     message: { error: "Too many requests. Please slow down." },
   });
   app.use("/api", apiLimiter);
+
+  const aiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many AI generation requests. Please slow down." },
+  });
+  app.use("/answerQuestion", aiLimiter);
+  app.use("/batchAnswerForm", aiLimiter);
 
   const chromeExtensionOrigin = process.env.EXTENSION_ID
     ? `chrome-extension://${process.env.EXTENSION_ID}`
@@ -349,7 +358,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         res.status(400).json({
           success: false,
           error: "Invalid sync profile payload.",
-          details: parsed.error.issues.map((i) => i.message),
+          details: formatZodErrors(parsed.error),
         });
         return;
       }
@@ -396,7 +405,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         updatedAt: new Date().toISOString(),
       };
 
-      store.set(pairingToken, syncedContext);
+      if (!store.set(pairingToken, syncedContext)) {
+        res.status(500).json({
+          success: false,
+          error: "Failed to persist synced context to disk.",
+        });
+        return;
+      }
       if (body.userId && body.userId !== pairingToken) {
         store.set(body.userId, syncedContext);
       }
@@ -423,7 +438,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
 
   app.get("/api/userContext/:token", (req: Request, res: Response): void => {
     try {
-      const token = decodeURIComponent(req.params.token || "").trim();
+      let token: string;
+      try {
+        token = decodeURIComponent(req.params.token || "").trim();
+      } catch {
+        res.status(400).json({ success: false, error: "Invalid pairing token encoding." });
+        return;
+      }
       if (!token) {
         res.status(400).json({ success: false, error: "Pairing token parameter is required." });
         return;
@@ -515,7 +536,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         return;
       }
 
-      store.delete(token);
+      if (!store.delete(token)) {
+        res.status(500).json({
+          success: false,
+          error: "Failed to delete persisted context from disk.",
+        });
+        return;
+      }
 
       res.status(200).json({
         success: true,
@@ -538,7 +565,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       if (!parsed.success) {
         res.status(400).json({
           error: "Bad Request: invalid payload.",
-          details: parsed.error.issues.map((i) => i.message),
+          details: formatZodErrors(parsed.error),
         });
         return;
       }
@@ -788,7 +815,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         res.status(400).json({
           success: false,
           error: "Bad Request: invalid payload.",
-          details: parsed.error.issues.map((i) => i.message),
+          details: formatZodErrors(parsed.error),
         });
         return;
       }
@@ -1082,23 +1109,14 @@ Requirements:
         res.status(400).json({
           success: false,
           error: "Invalid remember-answer payload.",
-          details: parsed.error.issues.map((i) => i.message),
+          details: formatZodErrors(parsed.error),
         });
         return;
       }
       const body: RememberAnswerInput = parsed.data;
-      const token = (body.pairingToken || "").trim();
-      const questionText = typeof body.question === "string" ? body.question.trim() : "";
-      const answerText = typeof body.answer === "string" ? body.answer.trim() : "";
-
-      if (!token) {
-        res.status(400).json({ success: false, error: "pairingToken is required." });
-        return;
-      }
-      if (!questionText || !answerText) {
-        res.status(400).json({ success: false, error: "question and answer are required." });
-        return;
-      }
+      const token = body.pairingToken.trim();
+      const questionText = body.question.trim();
+      const answerText = body.answer.trim();
 
       const cached = store.get(token) || store.get(token.toLowerCase());
       if (!cached) {
@@ -1152,7 +1170,13 @@ Requirements:
       profile.updatedAt = new Date().toISOString();
       cached.updatedAt = new Date().toISOString();
 
-      store.set(token, cached);
+      if (!store.set(token, cached)) {
+        res.status(500).json({
+          success: false,
+          error: "Failed to persist answer to disk.",
+        });
+        return;
+      }
 
       res.status(200).json({
         success: true,

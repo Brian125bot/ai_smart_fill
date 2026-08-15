@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.4
+
+**Quality hardening: validation, persistence safety, rate limiting, and test coverage**
+
+- **Validation:** All request routes now use Zod schemas with `.strict()` mode (Rejects unknown keys on `AnswerQuestionSchema`, `BatchAnswerFormSchema`, `RememberAnswerSchema`). `RememberAnswerSchema` requires non-empty `pairingToken`, `question`, and `answer`; `SyncProfileSchema` enforces that at least one identifier is present via a `.refine()` check. `PersonaProfileSchema.name` is now required. Added `formatZodErrors()` utility for consistent error detail formatting across all routes.
+- **Persistence:** `ContextStore.set()` and `delete()` now return `boolean` to surface disk-write failures. `syncProfile`, `rememberAnswer`, and `purgeContext` return `500` when persistence fails instead of reporting silent success. Removed the now-redundant `registerAlias` private method.
+- **Rate limiting:** Added `express-rate-limit` to all routes. The `/api/*` routes use a 120 req/min limiter; the expensive AI-generation routes (`/answerQuestion` and `/batchAnswerForm`) use a stricter 30 req/min limiter. Rate limit responses include `Retry-After` and `X-RateLimit-*` headers.
+- **Security:** Removed the unused `express.urlencoded` middleware (50 MB parser with no consumer). `decodeURIComponent` on `userContext/:token` now catches `URIError` and returns `400` instead of `500`. CORS is now mounted before rate-limit middleware so 429 responses carry the correct CORS headers.
+- **Tooling:** `npm run lint` now runs both `tsc --noEmit` and ESLint. CI enforces `timeout-minutes: 10` on all jobs. Added `vitest.config.ts` coverage thresholds for the new validation and rate-limit tests.
+- **Decoupling:** `errorLeak.ts` no longer imports from `src/validation.ts`, removing a runtime dependency edge.
+
+### Test Coverage Added
+
+- `tests/server/validation.test.ts` (17 tests): Schema-level validation for all Zod schemas including strict-mode rejection, missing required fields, whitespace-only fields, and `.strict()` unknown-key rejection.
+- `tests/server/rateLimit.test.ts` (2 tests): 429 on `/api/*` after 120 requests and 429 on `/answerQuestion` after 30 requests.
+- `tests/server/persistenceFailure.test.ts` (3 tests): 500 when `store.set()` fails in `syncProfile` and `rememberAnswer`, and 500 when `store.delete()` fails in `purgeContext`.
+- Total test count increased from 197 to 220.
+
 ## 1.0.3
 
 Structural error-leak detection and UX improvements:
@@ -27,7 +45,7 @@ Bug fixes addressing the post-release code review:
 - **`/api/rememberAnswer`:** no longer 500s when `profileFields` is missing; returns 404 (not silent wrong-persona save) when `profileId` does not match; rejects whitespace-only question/answer; dedupes by normalized question and uses a collision-resistant id.
 - **Batch path:** Q&A relevance scoring now runs in the batch path (short fields scored against the aggregate question set; long-form fields scored per field). Long-form generation honors the persona `tone` and `lengthStrategy` (concise/balanced/fill_limit). A single failed long-form field no longer discards the whole batch — it returns a per-field `error` and partial answers. Wrong-shaped Gemini JSON returns 500 instead of a silent `success: true` with zero answers. `modelUsed` is derived from the model that actually produced long-form-only answers.
 - **CORS:** dropped the `*` fallback, added `::1` loopback, and (when `EXTENSION_ID` is set) restrict `chrome-extension://` origins to that specific ID.
-- **Tests:** server tests use an isolated in-memory store instead of writing to the real `./data` directory. Aligned documented coverage thresholds with `vitest.config.ts`.
+- **Tests:** server tests use the injected/in-memory store helpers; do not let tests write real synced contexts into `data/`. Aligned documented coverage thresholds with `vitest.config.ts`.
 
 ## 1.0.0
 
@@ -35,7 +53,7 @@ Bug fixes addressing the post-release code review:
 
 - Added field classification: short-form, long-form, select, email, phone, numeric.
 - Added dedicated long-form prompt branch for textareas, cover letters, and descriptions with configurable tone and length strategy.
-- Added two-pass batch orchestration: short fields in one batch, long-form fields in parallel dedicated calls (max 3 concurrent).
+- Added two-pass batch orchestration: short fields in one batch prompt, long-form fields in parallel dedicated calls (max 3 concurrent).
 - Added Q&A retrieval scoring: saved custom Q&As are scored against each field's question and only the most relevant matches are injected into prompts.
 - Added `POST /api/rememberAnswer` endpoint to save accepted Q&A pairs back into a persona's bank.
 - Added per-persona tone (professional/conversational/formal) and length strategy (concise/balanced/fill_limit) settings.

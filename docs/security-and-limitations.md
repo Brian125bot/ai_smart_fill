@@ -32,9 +32,9 @@ The extension uses `<all_urls>` so it can inspect and fill forms on arbitrary si
 
 ## Network Controls
 
-CORS reflects local web origins and browser-extension origins. This limits ordinary browser reads from unrelated websites, but CORS is not authentication and does not protect a directly reachable server from non-browser clients.
+CORS reflects local web origins and browser-extension origins. This limits ordinary browser reads from unrelated websites, but CORS is not authentication and does not protect a directly reachable server from non-browser clients. CORS is applied before the rate limiter so that rate-limit (`429`) responses carry the correct CORS headers.
 
-The server accepts JSON and URL-encoded bodies up to `50mb`. Base64 PDF data increases payload size and remains in browser, process, and request memory during processing.
+The server accepts JSON bodies up to `50mb`. Base64 PDF data increases payload size and remains in browser, process, and request memory during processing.
 
 ## Model and Answer Safety
 
@@ -43,3 +43,5 @@ Gemini output is generated text and can be incomplete, incorrect, or inappropria
 ## Deployment Boundary
 
 The current repository does not provide a supported public deployment. Hosting it remotely would require, at minimum, authentication, per-user storage isolation, secret management, request limits, logging policy, secure CORS configuration, and a documented data-retention policy.
+
+For local use, all routes are rate-limited: `/api/*` at 120 req/min and AI-generation routes at 30 req/min. This is a minimal abuse-prevention measure for single-user use, not a multi-tenant rate-limiting system.

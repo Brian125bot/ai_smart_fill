@@ -35,6 +35,10 @@ The batch endpoint (`POST /batchAnswerForm`) classifies fields into short-form a
 
 The `POST /api/rememberAnswer` endpoint saves accepted Q&A pairs back into a persona's bank for future retrieval.
 
+Request validation is enforced with Zod schemas in `src/validation.ts`. The AI routes (`answerQuestion`, `batchAnswerForm`, `rememberAnswer`) use `.strict()` mode to reject unknown JSON keys; `syncProfile` allows extra keys for extension forward compatibility. `formatZodErrors()` produces the `details` array in `400` responses.
+
+All routes are rate-limited with `express-rate-limit`: `/api/*` at 120 req/min and AI-generation routes at 30 req/min. CORS is mounted before the rate limiter so `429` responses carry the correct `Access-Control-Allow-Origin` header.
+
 ### Extension
 
 The extension consists of:
@@ -83,12 +87,13 @@ The server binds to `127.0.0.1` unless `HOST` is set. The port is currently fixe
 
 ## Data Boundaries
 
-| Data | Browser dashboard | Server process | Extension |
-| --- | --- | --- | --- |
-| Selected model | `localStorage` | Request/cache value | `chrome.storage.local` |
-| Persona profiles | `localStorage` | In-memory synced copy | `chrome.storage.local` |
-| PDF data | `localStorage` when saved | In-memory base64 copy | `chrome.storage.local` when synced |
-| API key | Never | `GEMINI_API_KEY` environment variable | Never |
-| Pairing value | Fixed local value | Map key | `chrome.storage.local` |
+| Data                | Browser dashboard         | Server process                                                       | Extension                          |
+| ------------------- | ------------------------- | -------------------------------------------------------------------- | ---------------------------------- |
+| Selected model      | `localStorage`            | Request/cache value                                                  | `chrome.storage.local`             |
+| Persona profiles    | `localStorage`            | In-memory synced copy                                                | `chrome.storage.local`             |
+| PDF data            | `localStorage` when saved | In-memory base64 copy                                                | `chrome.storage.local` when synced |
+| API key             | Never                     | `GEMINI_API_KEY` environment variable                                | Never                              |
+| Pairing value       | Fixed local value         | Map key                                                              | `chrome.storage.local`             |
+| Error-leak detector | N/A                       | `errorLeak.ts` (structurally flags leaked exception text in answers) | Applied to all generation output   |
 
 The data boundary is intentionally simple for local use. It is not a substitute for encrypted storage, authentication, or multi-tenant isolation.

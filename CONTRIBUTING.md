@@ -21,7 +21,7 @@ npm run build
 npm run test:coverage
 ```
 
-The repository does not currently define a CI workflow, so these local checks are the source of truth before publishing changes.
+The repository defines a CI workflow (`.github/workflows/ci.yml`) that runs typecheck, lint, test, and build with a 10-minute timeout. These are the source of truth before publishing changes.
 
 ## Test Placement
 

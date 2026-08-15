@@ -24,8 +24,8 @@ export interface SyncedUserContext {
 
 export interface ContextStore {
   get(token: string): SyncedUserContext | undefined;
-  set(token: string, context: SyncedUserContext): void;
-  delete(token: string): void;
+  set(token: string, context: SyncedUserContext): boolean;
+  delete(token: string): boolean;
   has(token: string): boolean;
   keys(): IterableIterator<string>;
   size(): number;
@@ -123,13 +123,6 @@ export class FileBackedContextStore implements ContextStore {
     this.writeJson(aliasPath, Object.fromEntries(this.aliases));
   }
 
-  private registerAlias(token: string, canonical: string): void {
-    if (token.toLowerCase() !== canonical.toLowerCase()) {
-      this.aliases.set(token.toLowerCase(), canonical);
-      this.persistAliases();
-    }
-  }
-
   private resolveAlias(token: string): SyncedUserContext | undefined {
     const canonical = this.aliases.get(token.toLowerCase());
     if (!canonical) return undefined;
@@ -140,15 +133,19 @@ export class FileBackedContextStore implements ContextStore {
     return this.cache.get(token) || this.cache.get(token.toLowerCase()) || this.resolveAlias(token);
   }
 
-  set(token: string, context: SyncedUserContext): void {
+  set(token: string, context: SyncedUserContext): boolean {
     const canonical = context.pairingToken;
     this.cache.set(canonical, context);
     this.cache.set(canonical.toLowerCase(), context);
-    this.writeJson(path.join(this.dataDir, canonicalFilename(canonical)), context);
-    this.registerAlias(token, canonical);
+    const wrote = this.writeJson(path.join(this.dataDir, canonicalFilename(canonical)), context);
+    if (token.toLowerCase() !== canonical.toLowerCase()) {
+      this.aliases.set(token.toLowerCase(), canonical);
+      this.persistAliases();
+    }
+    return wrote;
   }
 
-  delete(token: string): void {
+  delete(token: string): boolean {
     const lower = token.toLowerCase();
     const direct = this.cache.get(token) || this.cache.get(lower);
     const aliasTarget = this.aliases.get(lower);
@@ -159,7 +156,7 @@ export class FileBackedContextStore implements ContextStore {
     if (isAlias) {
       this.aliases.delete(lower);
       this.persistAliases();
-      return;
+      return true;
     }
 
     const canonical = direct ? direct.pairingToken : token;
@@ -180,12 +177,14 @@ export class FileBackedContextStore implements ContextStore {
           `[store] Failed to delete "${canonicalFilename(canonical)}":`,
           err instanceof Error ? err.message : err
         );
+        return false;
       }
     }
 
     this.cache.delete(token);
     this.cache.delete(lower);
     this.persistAliases();
+    return true;
   }
 
   has(token: string): boolean {

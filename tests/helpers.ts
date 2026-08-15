@@ -53,16 +53,17 @@ export class InMemoryContextStore implements ContextStore {
     return this.cache.get(canonical) || this.cache.get(canonical.toLowerCase());
   }
 
-  set(token: string, context: SyncedUserContext): void {
+  set(token: string, context: SyncedUserContext): boolean {
     const canonical = context.pairingToken;
     this.cache.set(canonical, context);
     this.cache.set(canonical.toLowerCase(), context);
     if (token.toLowerCase() !== canonical.toLowerCase()) {
       this.aliases.set(token.toLowerCase(), canonical);
     }
+    return true;
   }
 
-  delete(token: string): void {
+  delete(token: string): boolean {
     const lower = token.toLowerCase();
     const direct = this.cache.get(token) || this.cache.get(lower);
     const aliasTarget = this.aliases.get(lower);
@@ -70,7 +71,7 @@ export class InMemoryContextStore implements ContextStore {
 
     if (isAlias) {
       this.aliases.delete(lower);
-      return;
+      return true;
     }
 
     const canonical = direct ? direct.pairingToken : token;
@@ -87,6 +88,7 @@ export class InMemoryContextStore implements ContextStore {
 
     this.cache.delete(token);
     this.cache.delete(lower);
+    return true;
   }
 
   has(token: string): boolean {

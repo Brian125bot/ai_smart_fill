@@ -88,6 +88,11 @@ describe('GET /api/userContext/:token', () => {
     expect(res.body.success).toBe(false);
     expect(res.body.error).toContain('No synced context found');
   });
+
+  it('returns 400 for malformed URI encoding in token', async () => {
+    const res = await request(app).get('/api/userContext/%E0%A4%A');
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('POST /api/userContext', () => {

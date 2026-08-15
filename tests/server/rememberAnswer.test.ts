@@ -84,7 +84,8 @@ describe('POST /api/rememberAnswer', () => {
       .send({ question: 'Q?', answer: 'A.' });
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toContain('pairingToken');
+    const details = res.body.details || [];
+    expect(details.some((d: string) => d.includes('pairingToken'))).toBe(true);
   });
 
   it('returns 400 for missing question or answer', async () => {

@@ -1,10 +1,8 @@
-import { GeminiContext } from "./src/validation";
-
 export type ContextType = "pdf" | "text" | "none";
 
-export function getContextType(
-  ctx: GeminiContext | null | undefined | { type?: string }
-): ContextType {
+type ContextLike = { type?: string; data?: string } | null | undefined;
+
+export function getContextType(ctx: ContextLike): ContextType {
   if (ctx?.type === "pdf") return "pdf";
   if (ctx?.type === "text") return "text";
   return "none";
