@@ -43,6 +43,7 @@ export function inertFakeAi() {
 export class InMemoryContextStore implements ContextStore {
   private cache = new Map<string, SyncedUserContext>();
   private aliases = new Map<string, string>();
+  private pdfs = new Map<string, Buffer>();
 
   get(token: string): SyncedUserContext | undefined {
     const lower = token.toLowerCase();
@@ -105,5 +106,17 @@ export class InMemoryContextStore implements ContextStore {
     const distinct = new Set<string>();
     for (const ctx of this.cache.values()) distinct.add(ctx.pairingToken);
     return distinct.size;
+  }
+
+  savePdf(token: string, base64Data: string): string {
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
+    const buffer = Buffer.from(cleanBase64, "base64");
+    this.pdfs.set(token, buffer);
+    this.pdfs.set(token.toLowerCase(), buffer);
+    return `pdfs/${token}.pdf`;
+  }
+
+  readPdf(token: string): Buffer | null {
+    return this.pdfs.get(token) || this.pdfs.get(token.toLowerCase()) || null;
   }
 }

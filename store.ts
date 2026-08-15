@@ -14,7 +14,7 @@ export interface SyncedUserContext {
   selectedModel?: string;
   usePageContext?: boolean;
   userProfile?: UserProfileFields;
-  pdfData?: string | null;
+  pdfFilePath?: string | null;
   pdfName?: string | null;
   pdfSize?: number | null;
   pdfMimeType?: string | null;
@@ -29,6 +29,8 @@ export interface ContextStore {
   has(token: string): boolean;
   keys(): IterableIterator<string>;
   size(): number;
+  savePdf(token: string, base64Data: string): string;
+  readPdf(token: string): Buffer | null;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -46,6 +48,10 @@ function canonicalFilename(token: string): string {
   return `${safeName(token)}_${hashToken(token)}.json`;
 }
 
+function pdfFilename(token: string): string {
+  return `${safeName(token)}_${hashToken(token)}.pdf`;
+}
+
 export class FileBackedContextStore implements ContextStore {
   private cache = new Map<string, SyncedUserContext>();
   private aliases = new Map<string, string>();
@@ -56,20 +62,40 @@ export class FileBackedContextStore implements ContextStore {
     this.loadFromDisk();
   }
 
+  private ensureDirs(): void {
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+    const pdfsDir = path.join(this.dataDir, "pdfs");
+    if (!fs.existsSync(pdfsDir)) {
+      fs.mkdirSync(pdfsDir, { recursive: true });
+    }
+  }
+
   private loadFromDisk(): void {
     try {
-      if (!fs.existsSync(this.dataDir)) {
-        fs.mkdirSync(this.dataDir, { recursive: true });
-        return;
-      }
+      this.ensureDirs();
       const files = fs
         .readdirSync(this.dataDir)
         .filter((f) => f.endsWith(".json") && f !== ALIASES_FILE);
       for (const file of files) {
         try {
           const raw = fs.readFileSync(path.join(this.dataDir, file), "utf-8");
-          const ctx: SyncedUserContext = JSON.parse(raw);
+          const ctx: SyncedUserContext & { pdfData?: string | null } = JSON.parse(raw);
           if (ctx && ctx.pairingToken) {
+            if (ctx.pdfData) {
+              try {
+                const pdfFilePath = this.savePdf(ctx.pairingToken, ctx.pdfData);
+                ctx.pdfFilePath = pdfFilePath;
+                delete ctx.pdfData;
+                this.writeJson(path.join(this.dataDir, file), ctx);
+              } catch (migErr) {
+                console.warn(
+                  `[store] Failed to migrate legacy PDF for "${ctx.pairingToken}":`,
+                  migErr instanceof Error ? migErr.message : migErr
+                );
+              }
+            }
             this.cache.set(ctx.pairingToken, ctx);
             this.cache.set(ctx.pairingToken.toLowerCase(), ctx);
           }
@@ -102,9 +128,7 @@ export class FileBackedContextStore implements ContextStore {
 
   private writeJson(filePath: string, obj: unknown): boolean {
     try {
-      if (!fs.existsSync(this.dataDir)) {
-        fs.mkdirSync(this.dataDir, { recursive: true });
-      }
+      this.ensureDirs();
       const tmpPath = `${filePath}.tmp-${process.pid}`;
       fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), "utf-8");
       fs.renameSync(tmpPath, filePath);
@@ -116,6 +140,36 @@ export class FileBackedContextStore implements ContextStore {
       );
       return false;
     }
+  }
+
+  savePdf(token: string, base64Data: string): string {
+    this.ensureDirs();
+    const pdfsDir = path.join(this.dataDir, "pdfs");
+    const filename = pdfFilename(token);
+    const fullPath = path.join(pdfsDir, filename);
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, "");
+    const buffer = Buffer.from(cleanBase64, "base64");
+    const tmpPath = `${fullPath}.tmp-${process.pid}`;
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, fullPath);
+    return path.join("pdfs", filename);
+  }
+
+  readPdf(token: string): Buffer | null {
+    try {
+      const ctx = this.get(token);
+      const relPath = ctx?.pdfFilePath || path.join("pdfs", pdfFilename(token));
+      const fullPath = path.isAbsolute(relPath) ? relPath : path.join(this.dataDir, relPath);
+      if (fs.existsSync(fullPath)) {
+        return fs.readFileSync(fullPath);
+      }
+    } catch (err) {
+      console.warn(
+        `[store] Failed to read PDF for token "${token}":`,
+        err instanceof Error ? err.message : err
+      );
+    }
+    return null;
   }
 
   private persistAliases(): void {
@@ -178,6 +232,17 @@ export class FileBackedContextStore implements ContextStore {
           err instanceof Error ? err.message : err
         );
         return false;
+      }
+
+      try {
+        const relPath = direct?.pdfFilePath || path.join("pdfs", pdfFilename(canonical));
+        const fullPdfPath = path.isAbsolute(relPath) ? relPath : path.join(this.dataDir, relPath);
+        if (fs.existsSync(fullPdfPath)) fs.unlinkSync(fullPdfPath);
+      } catch (err) {
+        console.error(
+          `[store] Failed to delete PDF for "${canonical}":`,
+          err instanceof Error ? err.message : err
+        );
       }
     }
 
