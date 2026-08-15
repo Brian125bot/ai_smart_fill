@@ -430,6 +430,39 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     }
   });
 
+    // POST /api/purgeContext - Delete user context file and aliases from memory and disk
+  app.post("/api/purgeContext", (req: Request, res: Response): void => {
+    try {
+      const token = (
+        req.body?.pairingToken ||
+        req.body?.userId ||
+        req.body?.email ||
+        req.query?.token ||
+        ""
+      ).toString().trim();
+
+      if (!token) {
+        res.status(400).json({ success: false, error: "Pairing token, userId, or email is required." });
+        return;
+      }
+
+      if (!store.has(token)) {
+        res.status(404).json({ success: false, error: `No synced context found for token "${token}".` });
+        return;
+      }
+
+      store.delete(token);
+
+      res.status(200).json({
+        success: true,
+        message: "User context purged successfully.",
+      });
+    } catch (err: any) {
+      console.error("Error in POST /api/purgeContext:", err);
+      res.status(500).json({ success: false, error: err?.message || "Failed to purge user context." });
+    }
+  });
+
   // ==========================================
   // POST /answerQuestion Endpoint
   // ==========================================

@@ -22,7 +22,7 @@ Keep the default loopback binding and do not expose this server publicly without
 - Synced profile and document data are copied into the server process memory.
 - Profile and PDF context can be sent to Gemini as part of an answering request.
 - None of these stores are encrypted by this project.
-- Restarting the server clears the in-memory cache.
+- Synced profile data is saved to plaintext JSON files in `data/` and survives server restarts. Use `POST /api/purgeContext` to clear stored context.
 
 Avoid using the current implementation with secrets, regulated data, or forms that require a stronger privacy boundary than local browser and process storage.
 

@@ -42,32 +42,66 @@ export function inertFakeAi() {
  */
 export class InMemoryContextStore implements ContextStore {
   private cache = new Map<string, SyncedUserContext>();
+  private aliases = new Map<string, string>();
 
   get(token: string): SyncedUserContext | undefined {
-    return this.cache.get(token) || this.cache.get(token.toLowerCase());
+    const lower = token.toLowerCase();
+    const direct = this.cache.get(token) || this.cache.get(lower);
+    if (direct) return direct;
+    const canonical = this.aliases.get(lower);
+    if (!canonical) return undefined;
+    return this.cache.get(canonical) || this.cache.get(canonical.toLowerCase());
   }
 
   set(token: string, context: SyncedUserContext): void {
-    this.cache.set(token, context);
-    if (token.toLowerCase() !== token) {
-      this.cache.set(token.toLowerCase(), context);
+    const canonical = context.pairingToken;
+    this.cache.set(canonical, context);
+    this.cache.set(canonical.toLowerCase(), context);
+    if (token.toLowerCase() !== canonical.toLowerCase()) {
+      this.aliases.set(token.toLowerCase(), canonical);
     }
   }
 
   delete(token: string): void {
+    const lower = token.toLowerCase();
+    const direct = this.cache.get(token) || this.cache.get(lower);
+    const aliasTarget = this.aliases.get(lower);
+    const isAlias = Boolean(aliasTarget && (!direct || direct.pairingToken.toLowerCase() !== lower));
+
+    if (isAlias) {
+      this.aliases.delete(lower);
+      return;
+    }
+
+    const canonical = direct ? direct.pairingToken : token;
+
+    if (canonical) {
+      this.cache.delete(canonical);
+      this.cache.delete(canonical.toLowerCase());
+      for (const [alias, target] of this.aliases) {
+        if (target.toLowerCase() === canonical.toLowerCase()) {
+          this.aliases.delete(alias);
+        }
+      }
+    }
+
     this.cache.delete(token);
-    this.cache.delete(token.toLowerCase());
+    this.cache.delete(lower);
   }
 
   has(token: string): boolean {
-    return this.cache.has(token) || this.cache.has(token.toLowerCase());
+    return !!this.get(token);
   }
 
   keys(): IterableIterator<string> {
-    return this.cache.keys();
+    const distinct = new Set<string>();
+    for (const ctx of this.cache.values()) distinct.add(ctx.pairingToken);
+    return distinct.keys();
   }
 
   size(): number {
-    return this.cache.size;
+    const distinct = new Set<string>();
+    for (const ctx of this.cache.values()) distinct.add(ctx.pairingToken);
+    return distinct.size;
   }
 }

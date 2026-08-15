@@ -95,7 +95,7 @@ Retrieves cached context using a URL-encoded pairing token, user ID, or email.
 curl http://localhost:3000/api/userContext/local-user-profile
 ```
 
-Success returns `{ "success": true, "source": "server_cache", "context": ... }`. An unknown token returns `404`. The cache is cleared when the server process restarts.
+Success returns `{ "success": true, "source": "server_cache", "context": ... }`. An unknown token returns `404`. Synced context is stored in plaintext JSON files in `data/` and survives server restarts.
 
 ## `POST /api/userContext`
 
@@ -106,6 +106,34 @@ curl -X POST 'http://localhost:3000/api/userContext?token=local-user-profile'
 ```
 
 Missing identifiers return `400`; unknown identifiers return `404`.
+
+
+## `POST /api/purgeContext`
+
+Deletes stored user context and all associated aliases from memory and disk.
+
+Example:
+
+```bash
+curl -X POST http://localhost:3000/api/purgeContext \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "pairingToken": "local-user-profile"
+  }'
+```
+
+Accepts `pairingToken`, `userId`, or `email` in the JSON body, or `token` in the query string.
+
+Success response:
+
+```json
+{
+  "success": true,
+  "message": "User context purged successfully."
+}
+```
+
+Missing identifiers return `400`. Unknown tokens return `404`.
 
 ## `POST /answerQuestion`
 
