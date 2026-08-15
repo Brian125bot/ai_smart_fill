@@ -163,7 +163,7 @@ describe('content.js', () => {
       expect(textarea.value).toBe('long-form answer');
     });
 
-    it('selects a matching option and leaves no-match selects unchanged', () => {
+    it('selects a matching option and leaves no-match selects unchanged, returning match status', () => {
       const select = document.createElement('select');
       for (const opt of ['Select...', 'No', 'Yes']) {
         const o = document.createElement('option');
@@ -173,10 +173,12 @@ describe('content.js', () => {
       document.body.append(select);
       const content = loadContent(makeChrome());
 
-      content.applyAnswerToField(select, 'Yes');
+      const resMatched = content.applyAnswerToField(select, 'Yes');
+      expect(resMatched).toBe(true);
       expect(select.selectedIndex).toBe(2);
 
-      content.applyAnswerToField(select, 'zzzz-not-an-option');
+      const resUnmatched = content.applyAnswerToField(select, 'zzzz-not-an-option');
+      expect(resUnmatched).toBe(false);
       expect(select.selectedIndex).toBe(2); // unchanged, no arbitrary fallback
     });
   });
@@ -230,6 +232,43 @@ describe('content.js', () => {
 
       await run;
       expect(input.value).toBe('');
+    });
+
+    it('does not increment filledCount for unmatched select fields and marks them needs-review', async () => {
+      const input = document.createElement('input');
+      input.id = 'name';
+      const select = document.createElement('select');
+      select.id = 'role';
+      for (const opt of ['Select...', 'Developer', 'Designer']) {
+        const o = document.createElement('option');
+        o.text = opt;
+        select.add(o);
+      }
+      document.body.append(input, select);
+
+      const chrome = makeChrome({ backendUrl: 'http://localhost:3000', usePageContext: false });
+      chrome.runtime.sendMessage = vi.fn(async () => {
+        return {
+          success: true,
+          answers: [
+            { id: 'name', answer: 'Alice' },
+            { id: 'role', answer: 'Astronaut' },
+          ],
+        };
+      });
+
+      const content = loadContent(chrome);
+      await content.startBatchFormAutofill();
+
+      expect(input.value).toBe('Alice');
+      expect(input.classList.contains('gemini-highlight-success')).toBe(true);
+
+      expect(select.selectedIndex).toBe(0);
+      expect(select.classList.contains('gemini-highlight-needs-review')).toBe(true);
+      expect(select.classList.contains('gemini-highlight-success')).toBe(false);
+
+      const toast = document.getElementById('gemini-autofill-page-toast');
+      expect(toast?.textContent).toContain('Successfully batch filled 1 of 2 fields');
     });
   });
 });
