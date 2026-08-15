@@ -39,7 +39,7 @@ Click **Save Local**. The service worker accepts either route and derives the ot
 4. Enter `local-user-profile` in the extension pairing field.
 5. Click **Sync Dashboard**.
 
-The cache is in memory. If the server restarted, save and sync the dashboard again.
+Synced context is stored in `data/` and survives server restarts. If context is missing, save and sync in the dashboard again.
 
 ## The extension receives a CORS error
 

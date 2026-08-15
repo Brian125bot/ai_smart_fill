@@ -36,7 +36,7 @@ Manifest V3 extension
   content script -> page fields
 ```
 
-The dashboard stores its configuration in browser `localStorage`. `POST /api/syncProfile` copies the current profile data into an in-memory server cache so the extension can retrieve it. The cache is lost when the server restarts. The extension stores its endpoint, pairing token, profiles, model, and grounding data in `chrome.storage.local`.
+The dashboard stores its configuration in browser `localStorage`. `POST /api/syncProfile` persists profile data to a file-backed store (`data/`) on the server so the extension can retrieve it. Synced context survives server restarts. The extension stores its endpoint, pairing token, profiles, model, and grounding data in `chrome.storage.local`.
 
 See the detailed documentation:
 
@@ -103,7 +103,7 @@ The production server serves the built frontend from `dist/` and listens on port
 
 1. Open **Context & Profile Hub**.
 2. Edit or create a persona with profile fields, custom Q&A, text context, PDF grounding, model, and system instruction.
-3. Click **Save & Sync Personas**. This writes to `localStorage` and the server's in-memory cache under `local-user-profile`.
+3. Click **Save & Sync Personas**. This writes to `localStorage` and the server's file-backed store under `local-user-profile`.
 4. Use **Form Playground & API** to test a single answer or a batch form request.
 5. Use **Extension Source Files** to inspect the generated files.
 6. Use **Chrome Setup Guide** to download and load the unpacked extension.
@@ -128,7 +128,8 @@ The extension accepts either `/answerQuestion` or `/batchAnswerForm` as the conf
 | --- | --- | --- |
 | `GET` | `/api/health` | Server status, configured model list, URL, and API-key status. |
 | `GET` | `/api/models` | Full supported-model metadata. |
-| `POST` | `/api/syncProfile` | Store dashboard context in the in-memory pairing cache. |
+| `POST` | `/api/syncProfile` | Store dashboard context in the file-backed pairing store. |
+| `POST` | `/api/purgeContext` | Delete stored user context file and aliases from memory and disk. |
 | `GET` | `/api/userContext/:token` | Retrieve cached context by URL-encoded token. |
 | `POST` | `/api/userContext` | Retrieve cached context by body or query token. |
 | `POST` | `/answerQuestion` | Generate one concise answer. |
@@ -158,7 +159,7 @@ Live tests make real network requests and may consume API quota. Coverage thresh
 
 - The Gemini API key is read only by the server and is not bundled into the extension.
 - There is no authentication or authorization. Anyone who can reach the server and knows a pairing value can request the cached context.
-- The profile cache is in memory and is cleared on restart.
+- Synced profile data is persisted to JSON files in `data/` and survives server restarts. Use `POST /api/purgeContext` to clear stored context.
 - Profile data and PDF data are stored in browser storage and may be sent to Gemini as request context.
 - The extension requests access to all URLs so it can inspect forms on arbitrary pages. Review this permission before using it with sensitive forms.
 - CORS allows local web origins and browser-extension origins; this is not a substitute for authentication.

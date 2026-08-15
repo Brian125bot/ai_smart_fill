@@ -123,3 +123,57 @@ describe('POST /api/userContext', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("POST /api/purgeContext", () => {
+  let app: any;
+  beforeAll(async () => {
+    app = await makeApp(inertFakeAi());
+    await request(app).post("/api/syncProfile").send({
+      pairingToken: "purge-tok",
+      email: "PurgeUser@Example.com",
+      userId: "purge-user-id",
+      profiles: [{ id: "p1", name: "Persona" }],
+      activeProfileId: "p1",
+    });
+  });
+
+  it("rejects missing token with 400", async () => {
+    const res = await request(app).post("/api/purgeContext").send({});
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("returns 404 for unknown token", async () => {
+    const res = await request(app).post("/api/purgeContext").send({ pairingToken: "non-existent" });
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("purges context and associated aliases successfully", async () => {
+    const res = await request(app).post("/api/purgeContext").send({ pairingToken: "purge-tok" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toContain("purged successfully");
+
+    const getCanon = await request(app).get("/api/userContext/purge-tok");
+    expect(getCanon.status).toBe(404);
+
+    const getEmail = await request(app).get("/api/userContext/purgeuser@example.com");
+    expect(getEmail.status).toBe(404);
+  });
+
+  it("purges context specified via query string", async () => {
+    await request(app).post("/api/syncProfile").send({
+      pairingToken: "query-purge-tok",
+      profiles: [{ id: "p1", name: "Persona" }],
+      activeProfileId: "p1",
+    });
+
+    const res = await request(app).post("/api/purgeContext?token=query-purge-tok").send({});
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const check = await request(app).get("/api/userContext/query-purge-tok");
+    expect(check.status).toBe(404);
+  });
+});
