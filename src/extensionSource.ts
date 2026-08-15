@@ -1840,6 +1840,9 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
               targetEl.classList.add("gemini-highlight-needs-review");
               setTimeout(() => targetEl.classList.remove("gemini-highlight-needs-review"), 2500);
             }
+          } else if (targetEl && ans.withheld) {
+            targetEl.classList.add("gemini-highlight-needs-review");
+            setTimeout(() => targetEl.classList.remove("gemini-highlight-needs-review"), 2500);
           }
         });
 

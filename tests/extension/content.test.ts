@@ -270,5 +270,35 @@ describe('content.js', () => {
       const toast = document.getElementById('gemini-autofill-page-toast');
       expect(toast?.textContent).toContain('Successfully batch filled 1 of 2 fields');
     });
+
+    it('highlights server-withheld answers with needs-review and does not fill them', async () => {
+      const normal = document.createElement('input');
+      normal.id = 'name';
+      const withheld = document.createElement('input');
+      withheld.id = 'cover_letter';
+      document.body.append(normal, withheld);
+
+      const chrome = makeChrome({ backendUrl: 'http://localhost:3000', usePageContext: false });
+      chrome.runtime.sendMessage = vi.fn(async () => ({
+        success: true,
+        answers: [
+          { id: 'name', answer: 'Alice', style: 'short' },
+          { id: 'cover_letter', answer: '', withheld: true },
+        ],
+      }));
+
+      const content = loadContent(chrome);
+      await content.startBatchFormAutofill();
+
+      expect(normal.value).toBe('Alice');
+      expect(normal.classList.contains('gemini-highlight-success')).toBe(true);
+
+      expect(withheld.value).toBe('');
+      expect(withheld.classList.contains('gemini-highlight-needs-review')).toBe(true);
+      expect(withheld.classList.contains('gemini-highlight-success')).toBe(false);
+
+      const toast = document.getElementById('gemini-autofill-page-toast');
+      expect(toast?.textContent).toContain('Successfully batch filled 1 of 2 fields');
+    });
   });
 });

@@ -573,6 +573,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       );
 
       const leak = looksLikeErrorLeak(answer || "");
+      let withheld = false;
       if (leak.leaked) {
         logLeak({
           endpoint: "/answerQuestion",
@@ -583,12 +584,12 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
           raw: answer || "",
         });
         answer = "";
+        withheld = true;
       }
 
-      res.status(200).json({
-        answer,
-        model: effectiveModel,
-      });
+      const payload: Record<string, any> = { answer, model: effectiveModel };
+      if (withheld) payload.withheld = true;
+      res.status(200).json(payload);
     } catch (error: any) {
       console.error("Error in /answerQuestion:", error);
       const errorMessage = error?.message || "Internal server error generating answer with Gemini.";
@@ -924,7 +925,7 @@ Requirements:
                   reason: leak.reason,
                   raw: val,
                 });
-                return { ...ans, answer: "" };
+                return { ...ans, answer: "", withheld: true };
               }
               return { ...ans, style: "short" };
             });
@@ -984,7 +985,7 @@ Requirements:
                 reason: leak.reason,
                 raw: r.answer || "",
               });
-              allAnswers.push({ ...r, answer: "" });
+              allAnswers.push({ ...r, answer: "", withheld: true });
             } else {
               allAnswers.push(r);
             }
