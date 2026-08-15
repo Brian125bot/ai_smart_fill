@@ -92,4 +92,50 @@ describe('FileBackedContextStore', () => {
     // cleanup
     try { fs.rmSync(uniqueDir, { recursive: true, force: true }); } catch {}
   });
+
+  it('resolves email and userId aliases after a restart', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    const ctx = makeContext('canon-tok', { email: 'a@b.com', userId: 'user-9' });
+    store.set('canon-tok', ctx);
+    store.set('user-9', ctx);
+    store.set('a@b.com', ctx);
+
+    const reloaded = new FileBackedContextStore(TEST_DATA_DIR);
+    expect(reloaded.get('canon-tok')?.email).toBe('a@b.com');
+    expect(reloaded.get('user-9')?.email).toBe('a@b.com');
+    expect(reloaded.get('A@B.COM')?.email).toBe('a@b.com');
+  });
+
+  it('keeps distinct tokens separate even when sanitized names collide', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    store.set('a/b', makeContext('a/b', { displayName: 'Slash' }));
+    store.set('a_b', makeContext('a_b', { displayName: 'Under' }));
+
+    expect(store.get('a/b')?.displayName).toBe('Slash');
+    expect(store.get('a_b')?.displayName).toBe('Under');
+
+    const reloaded = new FileBackedContextStore(TEST_DATA_DIR);
+    expect(reloaded.get('a/b')?.displayName).toBe('Slash');
+    expect(reloaded.get('a_b')?.displayName).toBe('Under');
+  });
+
+  it('remembers edits made via an alias after a restart (no rollback)', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    const ctx = makeContext('canon', {
+      email: 'x@y.com',
+      profiles: [{ id: 'p1', profileFields: { customQAs: [] } }],
+    });
+    store.set('canon', ctx);
+    store.set('x@y.com', ctx); // alias
+
+    // Simulate /api/rememberAnswer: edit via the canonical token and persist.
+    const edited = store.get('canon')!;
+    edited.profiles![0].profileFields.customQAs.push({ id: 'qa1', question: 'Q', answer: 'A' });
+    store.set('canon', edited);
+
+    const reloaded = new FileBackedContextStore(TEST_DATA_DIR);
+    const viaAlias = reloaded.get('x@y.com');
+    expect(viaAlias?.profiles?.[0]?.profileFields?.customQAs).toHaveLength(1);
+  });
 });
+

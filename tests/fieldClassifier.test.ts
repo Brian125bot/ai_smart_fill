@@ -60,4 +60,27 @@ describe('classifyField', () => {
   it('classifies cover letter question as long_form', () => {
     expect(classifyField({ question: 'Write a cover letter explaining your fit for this role' })).toBe('long_form');
   });
+
+  // --- Real-browser contract: payload sends maxLength: undefined when no attribute is set ---
+  // jsdom cannot reproduce the DOM IDL default (input.maxLength === 524288), so we test the
+  // contract between the content script (which now sends `undefined` when there is no
+  // `maxlength` attribute) and the classifier.
+
+  it('classifies a plain input with no maxLength as short_text (not long_form)', () => {
+    expect(classifyField({ tagName: 'input', type: 'text', maxLength: undefined, question: 'First name' })).toBe('short_text');
+    expect(classifyField({ tagName: 'input', maxLength: undefined, question: 'Employer' })).toBe('short_text');
+  });
+
+  it('classifies a textarea with no maxLength and rows >= 3 as long_form', () => {
+    expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 8, question: 'Experience' })).toBe('long_form');
+  });
+
+  it('classifies a single-row textarea with no maxLength and no keyword as short_text', () => {
+    expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 1, question: 'Nickname' })).toBe('short_text');
+  });
+
+  it('classifies a contenteditable div with no maxLength falling back to keywords', () => {
+    expect(classifyField({ tagName: 'div', maxLength: undefined, question: 'Tell us about yourself' })).toBe('long_form');
+    expect(classifyField({ tagName: 'div', maxLength: undefined, question: 'Notes' })).toBe('short_text');
+  });
 });

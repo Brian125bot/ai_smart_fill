@@ -1768,7 +1768,12 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
           question: extractQuestionForField(el),
           placeholder: el.placeholder || undefined,
           options: options,
-          maxLength: el.maxLength > 0 ? el.maxLength : undefined,
+          // Only report maxLength when the attribute is explicitly set. The DOM IDL
+          // default (input.maxLength === 524288, textarea.maxLength === -1 when no
+          // maxlength attribute is present) would otherwise route nearly every plain
+          // input to the long-form pipeline. Send undefined when the attribute is absent
+          // so the classifier relies on type/tagName/keyword signals.
+          maxLength: el.hasAttribute("maxlength") ? el.maxLength : undefined,
           required: el.required || false,
           tagName: el.tagName.toLowerCase(),
           rows: el.rows || undefined,

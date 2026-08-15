@@ -210,6 +210,20 @@ export function synthesizeProfileContext(
   return lines.join("\n");
 }
 
+function mostCommon(values: string[]): string {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+  let best = values[0];
+  let bestN = 0;
+  for (const [k, n] of counts) {
+    if (n > bestN) {
+      best = k;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
 // Re-export for backward compatibility
 export type { SyncedUserContext } from "./store";
 
@@ -231,16 +245,31 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   // CORS middleware to allow the Chrome extension and local web clients to access the API.
   // Reflects the origin only when it is a local/dev or browser-extension origin, so that
   // arbitrary third-party websites cannot read responses from this local proxy.
+  //
+  // When EXTENSION_ID is set, only that exact chrome-extension origin is accepted. When it
+  // is unset (dev convenience) any chrome-extension:// origin is allowed. The IPv6 loopback
+  // (::1) is permitted for localhost-first environments. No `*` fallback is emitted.
+  const chromeExtensionOrigin = process.env.EXTENSION_ID
+    ? `chrome-extension://${process.env.EXTENSION_ID}`
+    : null;
+
   app.use((req, res, next) => {
     const origin = req.headers.origin || "";
-    const isAllowedOrigin =
-      !origin ||
-      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
-      /^chrome-extension:\/\//.test(origin) ||
-      /^moz-extension:\/\//.test(origin);
+    let isAllowed = false;
+    if (!origin) {
+      isAllowed = true; // same-origin or non-browser clients (no CORS needed)
+    } else if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
+      isAllowed = true;
+    } else if (chromeExtensionOrigin && origin === chromeExtensionOrigin) {
+      isAllowed = true;
+    } else if (!chromeExtensionOrigin && /^chrome-extension:\/\//.test(origin)) {
+      isAllowed = true; // dev fallback: extension id not configured
+    } else if (/^moz-extension:\/\//.test(origin)) {
+      isAllowed = true; // Firefox extension host
+    }
 
-    if (isAllowedOrigin) {
-      res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    if (isAllowed && origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
     }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -575,20 +604,36 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     category: FieldCategory,
     groundingPrefix: string,
     context: any,
-    config: Record<string, any>
+    config: Record<string, any>,
+    tone: string = "professional",
+    lengthStrategy: string = "balanced"
   ): Promise<any> {
     const maxLen = field.maxLength && field.maxLength > 0 ? field.maxLength : 1000;
-    const targetLen = Math.floor(maxLen * 0.7);
+    const ratio =
+      lengthStrategy === "concise" ? 0.3 : lengthStrategy === "fill_limit" ? 0.9 : 0.7;
+    const targetLen = Math.floor(maxLen * ratio);
+
+    const toneLine =
+      tone === "conversational"
+        ? "- Write naturally and warmly, as you would in a personal statement or cover letter."
+        : tone === "formal"
+        ? "- Write in a formal, polished register appropriate for an official application."
+        : "- Write in first person as the applicant, specifically and professionally.";
 
     let promptText = groundingPrefix;
     promptText += `You are answering a job application or professional form.\n\n`;
     promptText += `Field: ${field.question}\n`;
     if (field.name) promptText += `Field name: ${field.name}\n`;
     promptText += `Character limit: ${maxLen}\n`;
-    promptText += `Target length: aim for approximately ${targetLen} characters (60-75% of the limit).\n\n`;
+    const rangeLabel =
+      lengthStrategy === "concise"
+        ? "about 30%"
+        : lengthStrategy === "fill_limit"
+        ? "close to the full"
+        : "roughly 60-75%";
+    promptText += `Target length: aim for approximately ${targetLen} characters (${rangeLabel} of the limit).\n\n`;
     promptText += `Instructions:\n`;
-    promptText += `- Write in first person as the applicant.\n`;
-    promptText += `- Be specific, detailed, and professional.\n`;
+    promptText += toneLine + "\n";
     promptText += `- Use concrete examples from the provided context when available.\n`;
     promptText += `- Do NOT exceed ${maxLen} characters.\n`;
     promptText += `- Do NOT include meta-commentary, code blocks, or markdown.\n`;
@@ -634,14 +679,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     };
   }
 
-  // Concurrency limiter for parallel promises
+  // Concurrency limiter for parallel promises (resilient: per-task errors are
+  // captured as { __error } rather than aborting the whole batch).
   async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = new Array(tasks.length);
     let index = 0;
     async function worker() {
       while (index < tasks.length) {
         const i = index++;
-        results[i] = await tasks[i]();
+        try {
+          results[i] = await tasks[i]();
+        } catch (err: any) {
+          results[i] = { __error: err?.message || String(err) } as unknown as T;
+        }
       }
     }
     const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
@@ -687,8 +737,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
           : null;
 
       // Check server sync cache if pairingToken is supplied and context/profile is not explicitly in payload
+      let cached: any;
       if (pairingToken) {
-        const cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
+        cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
         if (cached) {
           if (!userProfile) userProfile = cached.userProfile;
           if (!systemInstruction) systemInstruction = cached.systemInstruction;
@@ -711,6 +762,18 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const pageContext = body.pageContext;
 
+      // Resolve persona tone / length strategy from the active synced profile.
+      let personaTone = "professional";
+      let personaLengthStrategy = "balanced";
+      if (cached && Array.isArray(cached.profiles) && cached.profiles.length > 0) {
+        const activeProfile =
+          cached.profiles.find((p: any) => p.id === cached.activeProfileId) || cached.profiles[0];
+        if (activeProfile) {
+          if (activeProfile.tone) personaTone = activeProfile.tone;
+          if (activeProfile.lengthStrategy) personaLengthStrategy = activeProfile.lengthStrategy;
+        }
+      }
+
       // 2. Classify fields
       const classified = fields.map((f) => ({
         field: f,
@@ -725,7 +788,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
 
       // 3. Process short fields via batch prompt (existing logic)
       if (shortFields.length > 0) {
-        const profileContextStr = synthesizeProfileContext(userProfile);
+        const joinedQuestions = shortFields.map((c) => c.field.question).join(" ");
+        const profileContextStr = synthesizeProfileContext(userProfile, joinedQuestions);
         let promptText = "";
         if (profileContextStr) promptText += `${profileContextStr}\n\n`;
 
@@ -802,6 +866,14 @@ Requirements:
             parsedAnswers = (parsedAnswers as any).answers;
           }
 
+          // Valid JSON but neither an array nor { answers: [...] } is an unexpected
+          // shape — surface it as an error rather than silently returning 0 answers.
+          if (!Array.isArray(parsedAnswers)) {
+            throw new Error(
+              "Gemini returned unparseable structured output: " + (rawOutput || "").slice(0, 200)
+            );
+          }
+
           if (Array.isArray(parsedAnswers)) {
             parsedAnswers = parsedAnswers.map((ans) => {
               const val = typeof ans?.answer === "string" ? ans.answer : "";
@@ -827,28 +899,69 @@ Requirements:
         allAnswers.push(...parsedAnswers);
       }
 
-      // 4. Process long-form fields via dedicated parallel calls
+      // 4. Process long-form fields via dedicated parallel calls (resilient + per-field scoring)
       if (longFields.length > 0) {
-        const { promptPrefix, config: longConfig } = buildGroundingPrefix(
-          userProfile, "", pageContext, context, systemInstruction
-        );
-
-        const longTasks = longFields.map((c) => () =>
-          generateLongFormAnswer(ai, requestedModel, c.field, c.category, promptPrefix, context, longConfig)
-        );
+        const longTasks = longFields.map((c) => {
+          const { promptPrefix, config: longConfig } = buildGroundingPrefix(
+            userProfile, c.field.question, pageContext, context, systemInstruction
+          );
+          return () =>
+            generateLongFormAnswer(
+              ai,
+              requestedModel,
+              c.field,
+              c.category,
+              promptPrefix,
+              context,
+              longConfig,
+              personaTone,
+              personaLengthStrategy
+            );
+        });
 
         const longResults = await runWithConcurrency(longTasks, 3);
-        allAnswers.push(...longResults);
+        longFields.forEach((c, i) => {
+          const r = longResults[i] as any;
+          if (r && r.__error) {
+            allAnswers.push({
+              id: c.field.id,
+              question: c.field.question,
+              answer: "",
+              confidence: 0,
+              reasoning: "Generation failed for this field.",
+              style: "long_form",
+              error: r.__error,
+            });
+          } else {
+            allAnswers.push(r);
+          }
+        });
       }
 
       // 5. Sort answers back into original field order
       const fieldOrder = new Map(fields.map((f, i) => [f.id, i]));
       allAnswers.sort((a, b) => (fieldOrder.get(a.id) ?? 999) - (fieldOrder.get(b.id) ?? 999));
 
+      const successful = allAnswers.filter((a) => !a.error);
       const timeMs = Date.now() - startTime;
 
+      // Derive the model actually used when only long-form fields ran.
+      if (shortFields.length === 0 && longFields.length > 0 && successful.length > 0) {
+        const used = successful.map((a) => a?.model).filter(Boolean);
+        if (used.length) effectiveModel = mostCommon(used);
+      }
+
+      if (allAnswers.length > 0 && successful.length === 0) {
+        res.status(500).json({
+          success: false,
+          answers: allAnswers,
+          error: "All fields failed to generate answers.",
+        });
+        return;
+      }
+
       res.status(200).json({
-        success: true,
+        success: successful.length === allAnswers.length,
         answers: allAnswers,
         modelUsed: effectiveModel,
         timeMs,
@@ -876,7 +989,9 @@ Requirements:
         res.status(400).json({ success: false, error: "pairingToken is required." });
         return;
       }
-      if (!question || !answer) {
+      const questionText = typeof question === "string" ? question.trim() : "";
+      const answerText = typeof answer === "string" ? answer.trim() : "";
+      if (!questionText || !answerText) {
         res.status(400).json({ success: false, error: "question and answer are required." });
         return;
       }
@@ -888,26 +1003,51 @@ Requirements:
       }
 
       // Find active profile and add Q&A
-      const profiles = cached.profiles || [];
-      const targetId = profileId || cached.activeProfileId || (profiles[0]?.id ?? null);
-      const profile = profiles.find((p: any) => p.id === targetId) || profiles[0];
+      const profiles = Array.isArray(cached.profiles) ? cached.profiles : [];
+      let profile: any;
+      if (profileId) {
+        profile = profiles.find((p: any) => p.id === profileId) || null;
+      } else {
+        profile =
+          profiles.find((p: any) => p.id === cached.activeProfileId) || profiles[0] || null;
+      }
 
       if (!profile) {
-        res.status(404).json({ success: false, error: "No active persona profile found." });
+        res.status(404).json({
+          success: false,
+          error: profileId
+            ? "No persona profile matches the provided profileId."
+            : "No active persona profile found.",
+        });
         return;
       }
 
+      if (!profile.profileFields || typeof profile.profileFields !== "object") {
+        profile.profileFields = { customQAs: [] };
+      }
       if (!Array.isArray(profile.profileFields.customQAs)) {
         profile.profileFields.customQAs = [];
       }
 
-      const newQA = {
-        id: `qa-remembered-${Date.now()}`,
-        question: question.trim(),
-        answer: answer.trim(),
-      };
+      // Dedupe by normalized question; update the existing entry if present.
+      const normalized = questionText.toLowerCase();
+      const existing = profile.profileFields.customQAs.find(
+        (qa: any) => qa && qa.question && qa.question.trim().toLowerCase() === normalized
+      );
 
-      profile.profileFields.customQAs.push(newQA);
+      let savedQAId: string;
+      if (existing) {
+        existing.answer = answerText;
+        savedQAId = existing.id;
+      } else {
+        savedQAId = `qa-remembered-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        profile.profileFields.customQAs.push({
+          id: savedQAId,
+          question: questionText,
+          answer: answerText,
+        });
+      }
+
       profile.updatedAt = new Date().toISOString();
       cached.updatedAt = new Date().toISOString();
 
@@ -916,7 +1056,7 @@ Requirements:
       res.status(200).json({
         success: true,
         message: "Answer saved to Q&A bank.",
-        qaId: newQA.id,
+        qaId: savedQAId,
         totalQAs: profile.profileFields.customQAs.length,
       });
     } catch (err: any) {

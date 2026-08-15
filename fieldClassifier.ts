@@ -4,6 +4,7 @@ export interface FieldClassificationInput {
   type?: string;
   tagName?: string;
   maxLength?: number;
+  rows?: number;
   question?: string;
   placeholder?: string;
   name?: string;
@@ -85,9 +86,18 @@ export function classifyField(field: FieldClassificationInput): FieldCategory {
     return "long_form";
   }
 
-  // Textarea with short maxLength → short_text
+  // Textarea with short explicit maxLength → short_text
   if (tagName === "textarea" && field.maxLength && field.maxLength > 0 && field.maxLength <= 200) {
     return "short_text";
+  }
+
+  // Textarea (or contenteditable div) with no explicit maxLength: use rows and
+  // keyword signals. A multiline field (rows >= 3) and no short maxLength is
+  // almost always a free-text essay, so treat it as long_form; single-row or
+  // unspecified-row textareas fall through to keyword/length heuristics below.
+  if ((tagName === "textarea" || tagName === "div") && field.maxLength === undefined) {
+    const rows = field.rows && field.rows > 0 ? field.rows : 0;
+    if (rows >= 3) return "long_form";
   }
 
   // Keyword-based detection from question/placeholder/name

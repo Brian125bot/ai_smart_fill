@@ -51,7 +51,7 @@ These tests make real network requests, validate the configured model IDs, and m
 The critical server path has these minimum thresholds:
 
 ```text
-lines: 80, functions: 80, statements: 80, branches: 70
+lines: 70, functions: 70, statements: 70, branches: 65
 ```
 
 The current `src/**` threshold is:

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import { makeApp, makeFakeAi } from '../helpers';
+import { makeApp, makeFakeAi, InMemoryContextStore } from '../helpers';
 
 const FIELDS = [
   { id: 'full_name', question: 'Full name?' },
@@ -145,5 +145,130 @@ describe('POST /batchAnswerForm', () => {
     expect(res.status).toBe(200);
     expect(res.body.answers[0].style).toBe('long_form');
     expect(res.body.answers[0].answer.length).toBeLessThanOrEqual(500);
+  });
+
+  it('does not inject irrelevant custom Q&As into the long-form prompt', async () => {
+    const store = new InMemoryContextStore();
+    store.set('tok-qa', {
+      pairingToken: 'tok-qa',
+      updatedAt: new Date().toISOString(),
+      userProfile: {
+        fullName: 'Ada',
+        customQAs: [
+          { id: 'q1', question: 'What did you study in college?', answer: 'Physics' },
+        ],
+      },
+    });
+
+    let longPrompt = '';
+    const ai = makeFakeAi((args) => {
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Describe your leadership')) {
+        longPrompt = text;
+        return { text: 'I lead with empathy.' };
+      }
+      return { text: '[]' };
+    });
+
+    const app = await makeApp(ai, store);
+    await request(app).post('/batchAnswerForm').send({
+      pairingToken: 'tok-qa',
+      fields: [
+        { id: 'lead', question: 'Describe your leadership style', maxLength: 300, tagName: 'textarea', rows: 5 },
+      ],
+    });
+
+    expect(longPrompt).not.toContain('What did you study in college?');
+    expect(longPrompt).not.toContain('Physics');
+  });
+
+  it('honors persona lengthStrategy and tone in long-form prompts', async () => {
+    const store = new InMemoryContextStore();
+    store.set('tok-tone', {
+      pairingToken: 'tok-tone',
+      updatedAt: new Date().toISOString(),
+      activeProfileId: 'p1',
+      profiles: [{ id: 'p1', name: 'T', tone: 'conversational', lengthStrategy: 'fill_limit' }],
+    });
+
+    let longPrompt = '';
+    const ai = makeFakeAi((args) => {
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Describe your leadership')) {
+        longPrompt = text;
+        return { text: 'I lead warmly.' };
+      }
+      return { text: '[]' };
+    });
+
+    const app = await makeApp(ai, store);
+    await request(app).post('/batchAnswerForm').send({
+      pairingToken: 'tok-tone',
+      fields: [
+        { id: 'lead', question: 'Describe your leadership style', maxLength: 300, tagName: 'textarea', rows: 5 },
+      ],
+    });
+
+    expect(longPrompt).toContain('close to the full');
+    const targetMatch = longPrompt.match(/aim for approximately (\d+) characters/);
+    expect(targetMatch).toBeTruthy();
+    expect(Number(targetMatch![1])).toBeGreaterThanOrEqual(270); // ~90% of 300
+    expect(longPrompt).toContain('personal statement or cover letter'); // conversational tone
+  });
+
+  it('returns partial answers with per-field errors when one long-form field fails', async () => {
+    const ai = makeFakeAi((args) => {
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Describe your leadership')) {
+        throw new Error('503 high demand');
+      }
+      if (text.includes('Tell us about a challenge')) {
+        return { text: 'I overcame a hard deadline.' };
+      }
+      return { text: '[]' };
+    });
+
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({
+      fields: [
+        { id: 'lead', question: 'Describe your leadership style', maxLength: 300, tagName: 'textarea', rows: 5 },
+        { id: 'challenge', question: 'Tell us about a challenge you overcame', maxLength: 300, tagName: 'textarea', rows: 5 },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const lead = res.body.answers.find((a: any) => a.id === 'lead');
+    const challenge = res.body.answers.find((a: any) => a.id === 'challenge');
+    expect(challenge.answer).toBe('I overcame a hard deadline.');
+    expect(lead.answer).toBe('');
+    expect(lead.error).toBeTruthy();
+  }, 30000);
+
+  it('returns 500 (not silent success) for wrong-shaped JSON output', async () => {
+    const ai = makeFakeAi(() => ({ text: JSON.stringify({ unexpected: 1 }) }));
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({ fields: FIELDS });
+    expect(res.status).toBe(500);
+  });
+
+  it('reports the fallback model actually used for long-form-only batches', async () => {
+    const ai = makeFakeAi((args) => {
+      const model: string = args.model;
+      if (model === 'gemini-3.7-pro') throw new Error('503 high demand');
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Describe your leadership')) return { text: 'I lead with empathy.' };
+      return { text: '[]' };
+    });
+
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({
+      model: 'gemini-3.7-pro',
+      fields: [
+        { id: 'lead', question: 'Describe your leadership style', maxLength: 300, tagName: 'textarea', rows: 5 },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body.modelUsed).toBe('gemini-3.7-flash');
   });
 });

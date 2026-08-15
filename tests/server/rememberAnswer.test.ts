@@ -107,4 +107,48 @@ describe('POST /api/rememberAnswer', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('creates profileFields.customQAs when profileFields is entirely absent', async () => {
+    store.set('tok-nopf', {
+      pairingToken: 'tok-nopf',
+      updatedAt: new Date().toISOString(),
+      activeProfileId: 'p1',
+      profiles: [{ id: 'p1', name: 'Test' }],
+    });
+
+    const app = await createApp({ serveStatic: false, contextStore: store });
+    const res = await request(app)
+      .post('/api/rememberAnswer')
+      .send({ pairingToken: 'tok-nopf', question: 'Q?', answer: 'A.' });
+
+    expect(res.status).toBe(200);
+    const cached = store.get('tok-nopf');
+    expect(cached?.profiles?.[0]?.profileFields?.customQAs).toHaveLength(1);
+  });
+
+  it('returns 404 when profileId does not match any persona', async () => {
+    store.set('tok-pid', {
+      pairingToken: 'tok-pid',
+      updatedAt: new Date().toISOString(),
+      activeProfileId: 'p1',
+      profiles: [{ id: 'p1', name: 'Test', profileFields: {} }],
+    });
+
+    const app = await createApp({ serveStatic: false, contextStore: store });
+    const res = await request(app)
+      .post('/api/rememberAnswer')
+      .send({ pairingToken: 'tok-pid', profileId: 'nonexistent', question: 'Q?', answer: 'A.' });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 400 for whitespace-only question or answer', async () => {
+    store.set('tok-ws', { pairingToken: 'tok-ws', updatedAt: new Date().toISOString() });
+    const app = await createApp({ serveStatic: false, contextStore: store });
+    const res = await request(app)
+      .post('/api/rememberAnswer')
+      .send({ pairingToken: 'tok-ws', question: '   ', answer: 'A.' });
+
+    expect(res.status).toBe(400);
+  });
 });
