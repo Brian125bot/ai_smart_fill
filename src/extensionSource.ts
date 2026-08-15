@@ -1831,10 +1831,15 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         response.answers.forEach((ans) => {
           const targetEl = rawElements.find((el) => el.dataset.geminiFieldId === ans.id);
           if (targetEl && ans.answer) {
-            applyAnswerToField(targetEl, ans.answer);
-            targetEl.classList.add("gemini-highlight-success");
-            setTimeout(() => targetEl.classList.remove("gemini-highlight-success"), 2500);
-            filledCount++;
+            const filled = applyAnswerToField(targetEl, ans.answer);
+            if (filled) {
+              targetEl.classList.add("gemini-highlight-success");
+              setTimeout(() => targetEl.classList.remove("gemini-highlight-success"), 2500);
+              filledCount++;
+            } else {
+              targetEl.classList.add("gemini-highlight-needs-review");
+              setTimeout(() => targetEl.classList.remove("gemini-highlight-needs-review"), 2500);
+            }
           }
         });
 
@@ -1859,13 +1864,16 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
       field.innerText = answer;
     } else if (field.tagName.toLowerCase() === "select") {
       const lower = answer.toLowerCase().trim();
+      let matched = false;
       for (let i = 0; i < field.options.length; i++) {
         const opt = field.options[i];
         if (opt.text.toLowerCase().includes(lower) || opt.value.toLowerCase().includes(lower)) {
           field.selectedIndex = i;
+          matched = true;
           break;
         }
       }
+      if (!matched) return false;
     } else {
       // Use native value setter to trigger React/Vue controlled component updates
       // The input and textarea setters validate their receiver type. Selecting
@@ -1885,6 +1893,7 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
 
     field.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     field.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    return true;
   }
 
   // 7. Toast Notifications in Page
@@ -1993,6 +2002,13 @@ export const CONTENT_CSS = `/* Gemini Form Autofill - Content Script Injected St
   outline: 2px solid #10b981 !important;
   outline-offset: 2px !important;
   box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.3) !important;
+  transition: outline 0.2s, box-shadow 0.2s !important;
+}
+
+.gemini-highlight-needs-review {
+  outline: 2px solid #f59e0b !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.3) !important;
   transition: outline 0.2s, box-shadow 0.2s !important;
 }
 
