@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Sparkles,
   FileText,
-  FileUp,
-  Cpu,
   Save,
   CheckCircle2,
   Copy,
@@ -14,25 +12,17 @@ import {
   Eye,
   Sliders,
   User as UserIcon,
-  Briefcase,
-  Link as LinkIcon,
-  BookOpen,
   Zap,
   Layers,
   CopyPlus,
   Edit2,
-  Play,
-  RotateCcw,
-  Clock,
-  Square,
 } from "lucide-react";
-import {
-  AVAILABLE_GEMINI_MODELS,
-  PersonaProfile,
-  CustomQA,
-  BatchFormField,
-  BatchFieldAnswer,
-} from "../types";
+import { PersonaProfile, BatchFormField, BatchFieldAnswer } from "../types";
+import { ProfileSubTab } from "./ProfileSubTab";
+import { InstructionsSubTab } from "./InstructionsSubTab";
+import { DocumentsSubTab } from "./DocumentsSubTab";
+import { PreviewSubTab } from "./PreviewSubTab";
+import { BatchTesterSubTab } from "./BatchTesterSubTab";
 
 const LOCAL_PAIRING_TOKEN = "local-user-profile";
 
@@ -65,8 +55,7 @@ const DEFAULT_PROFILES: PersonaProfile[] = [
         {
           id: "qa-1",
           question: "Are you legally authorized to work in the United States?",
-          answer:
-            "Yes, I am a US citizen authorized to work for any employer without sponsorship.",
+          answer: "Yes, I am a US citizen authorized to work for any employer without sponsorship.",
         },
         {
           id: "qa-2",
@@ -154,8 +143,7 @@ const DEFAULT_PROFILES: PersonaProfile[] = [
       jobTitle: "Director of Enterprise Solutions",
       yearsOfExperience: "10+ years corporate",
       education: "B.A. Business Administration",
-      coreSkills:
-        "SOC2 Compliance, ISO 27001, Enterprise SLA, Cloud Infrastructure, Procurement",
+      coreSkills: "SOC2 Compliance, ISO 27001, Enterprise SLA, Cloud Infrastructure, Procurement",
       portfolioUrl: "https://acme-cloud-solutions.com",
       linkedinUrl: "https://linkedin.com/company/acme-cloud-solutions",
       githubUrl: "https://github.com/acme-cloud-solutions",
@@ -181,18 +169,99 @@ const DEFAULT_PROFILES: PersonaProfile[] = [
 ];
 
 const SAMPLE_BATCH_FORM: BatchFormField[] = [
-  { id: "full_name", name: "full_name", type: "text", question: "Full Legal Name", placeholder: "e.g. John Doe", required: true },
-  { id: "email_address", name: "email_address", type: "email", question: "Email Address", placeholder: "e.g. john@example.com", required: true },
-  { id: "phone_number", name: "phone_number", type: "tel", question: "Phone Number", placeholder: "e.g. +1 555 123 4567", required: true },
-  { id: "current_location", name: "current_location", type: "text", question: "Current Location / City & State", placeholder: "e.g. San Francisco, CA", required: true },
-  { id: "job_title", name: "job_title", type: "text", question: "Current or Target Job Title", placeholder: "e.g. Senior Software Engineer" },
-  { id: "total_experience", name: "total_experience", type: "text", question: "Total Years of Relevant Experience", placeholder: "e.g. 7 years" },
-  { id: "work_auth", name: "work_auth", type: "select", question: "Are you authorized to work in the US without sponsorship?", options: ["Yes, US Citizen / Green Card", "Yes, eligible with existing visa", "No, require visa sponsorship"] },
-  { id: "salary_expectation", name: "salary_expectation", type: "text", question: "Desired Annual Compensation / Salary Range", placeholder: "e.g. $160,000 - $185,000" },
-  { id: "earliest_start_date", name: "earliest_start_date", type: "text", question: "Earliest Start Date / Notice Period", placeholder: "e.g. 2 weeks notice" },
-  { id: "core_technologies", name: "core_technologies", type: "text", question: "List Your Top Core Technologies & Frameworks", placeholder: "e.g. TypeScript, React, Cloud Run, Python" },
-  { id: "linkedin_profile", name: "linkedin_profile", type: "text", question: "LinkedIn Profile URL", placeholder: "https://linkedin.com/in/..." },
-  { id: "why_join_us", name: "why_join_us", type: "textarea", question: "Briefly explain why your background is a strong fit for this position (2-3 sentences)", placeholder: "Share your passion and relevant achievements..." },
+  {
+    id: "full_name",
+    name: "full_name",
+    type: "text",
+    question: "Full Legal Name",
+    placeholder: "e.g. John Doe",
+    required: true,
+  },
+  {
+    id: "email_address",
+    name: "email_address",
+    type: "email",
+    question: "Email Address",
+    placeholder: "e.g. john@example.com",
+    required: true,
+  },
+  {
+    id: "phone_number",
+    name: "phone_number",
+    type: "tel",
+    question: "Phone Number",
+    placeholder: "e.g. +1 555 123 4567",
+    required: true,
+  },
+  {
+    id: "current_location",
+    name: "current_location",
+    type: "text",
+    question: "Current Location / City & State",
+    placeholder: "e.g. San Francisco, CA",
+    required: true,
+  },
+  {
+    id: "job_title",
+    name: "job_title",
+    type: "text",
+    question: "Current or Target Job Title",
+    placeholder: "e.g. Senior Software Engineer",
+  },
+  {
+    id: "total_experience",
+    name: "total_experience",
+    type: "text",
+    question: "Total Years of Relevant Experience",
+    placeholder: "e.g. 7 years",
+  },
+  {
+    id: "work_auth",
+    name: "work_auth",
+    type: "select",
+    question: "Are you authorized to work in the US without sponsorship?",
+    options: [
+      "Yes, US Citizen / Green Card",
+      "Yes, eligible with existing visa",
+      "No, require visa sponsorship",
+    ],
+  },
+  {
+    id: "salary_expectation",
+    name: "salary_expectation",
+    type: "text",
+    question: "Desired Annual Compensation / Salary Range",
+    placeholder: "e.g. $160,000 - $185,000",
+  },
+  {
+    id: "earliest_start_date",
+    name: "earliest_start_date",
+    type: "text",
+    question: "Earliest Start Date / Notice Period",
+    placeholder: "e.g. 2 weeks notice",
+  },
+  {
+    id: "core_technologies",
+    name: "core_technologies",
+    type: "text",
+    question: "List Your Top Core Technologies & Frameworks",
+    placeholder: "e.g. TypeScript, React, Cloud Run, Python",
+  },
+  {
+    id: "linkedin_profile",
+    name: "linkedin_profile",
+    type: "text",
+    question: "LinkedIn Profile URL",
+    placeholder: "https://linkedin.com/in/...",
+  },
+  {
+    id: "why_join_us",
+    name: "why_join_us",
+    type: "textarea",
+    question:
+      "Briefly explain why your background is a strong fit for this position (2-3 sentences)",
+    placeholder: "Share your passion and relevant achievements...",
+  },
 ];
 
 interface ContextHubProps {
@@ -211,35 +280,27 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     "profile" | "instructions" | "documents" | "batch-tester" | "preview"
   >("profile");
 
-  // Multi-Profile State (Item 2)
   const [profiles, setProfiles] = useState<PersonaProfile[]>(DEFAULT_PROFILES);
   const [activeProfileId, setActiveProfileId] = useState<string>("profile-cloud-lead");
   const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
   const [newProfileName, setNewProfileName] = useState<string>("");
 
-  // Batch Form Testing State (Item 1)
   const [batchFormValues, setBatchFormValues] = useState<Record<string, string>>({});
-  const [batchAnswersMetadata, setBatchAnswersMetadata] = useState<Record<string, BatchFieldAnswer>>({});
+  const [batchAnswersMetadata, setBatchAnswersMetadata] = useState<
+    Record<string, BatchFieldAnswer>
+  >({});
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchLatency, setBatchLatency] = useState<number | null>(null);
   const [batchModelUsed, setBatchModelUsed] = useState<string | null>(null);
-  const batchAbortControllerRef = useRef<AbortController | null>(null);
 
-  // Active Profile Pointer
   const activeProfile =
     profiles.find((p) => p.id === activeProfileId) || profiles[0] || DEFAULT_PROFILES[0];
-
-  const backendUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/answerQuestion`
-      : "http://localhost:3000/answerQuestion";
 
   const batchBackendUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/batchAnswerForm`
       : "http://localhost:3000/batchAnswerForm";
 
-  // Load configuration from LocalStorage
   useEffect(() => {
     try {
       const localStored = localStorage.getItem("gemini_dashboard_context_config");
@@ -255,21 +316,16 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     }
   }, []);
 
-  // Update a field on the currently active profile
   const updateActiveProfile = (updater: (prev: PersonaProfile) => PersonaProfile) => {
-    setProfiles((prevList) =>
-      prevList.map((p) => (p.id === activeProfileId ? updater(p) : p))
-    );
+    setProfiles((prevList) => prevList.map((p) => (p.id === activeProfileId ? updater(p) : p)));
   };
 
   const handleSaveConfig = async () => {
     setSaving(true);
     try {
-      // 1. Save to local storage for instant extension retrieval
       const payload = {
         activeProfileId,
         profiles,
-        // Also provide top-level aliases for the active profile
         systemInstruction: activeProfile.systemInstruction,
         selectedModel: activeProfile.selectedModel,
         usePageContext: activeProfile.usePageContext,
@@ -279,7 +335,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
       };
       localStorage.setItem("gemini_dashboard_context_config", JSON.stringify(payload));
 
-      // 2. Sync to backend API cache for instant Chrome Extension pairing & autofill
       try {
         await fetch("/api/syncProfile", {
           method: "POST",
@@ -320,7 +375,12 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   };
 
   const handlePurgeContext = async () => {
-    if (!window.confirm("This will permanently delete all synced context data from the server. Continue?")) return;
+    if (
+      !window.confirm(
+        "This will permanently delete all synced context data from the server. Continue?"
+      )
+    )
+      return;
     setPurging(true);
     try {
       const res = await fetch("/api/purgeContext", {
@@ -335,8 +395,9 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
       } else {
         alert(data.error || "Failed to clear synced data.");
       }
-    } catch (err: any) {
-      alert(err.message || "Failed to clear synced data.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      alert(message || "Failed to clear synced data.");
     } finally {
       setPurging(false);
     }
@@ -396,91 +457,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     setRenamingProfileId(null);
   };
 
-  const [isDraggingPdf, setIsDraggingPdf] = useState(false);
-
-  const processPdfFileObject = (file: File) => {
-    const isPdf =
-      (file.type && file.type.toLowerCase().includes("pdf")) ||
-      (file.name && file.name.toLowerCase().endsWith(".pdf"));
-
-    if (!isPdf) {
-      alert("Please select or drop a valid PDF document (.pdf).");
-      return;
-    }
-
-    if (file.size > 25 * 1024 * 1024) {
-      alert("PDF exceeds the 25MB limit. Please choose a smaller document.");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
-      updateActiveProfile((p) => ({
-        ...p,
-        pdfFile: {
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || "application/pdf",
-          base64,
-        },
-      }));
-    };
-    reader.onerror = () => {
-      alert("Failed to read PDF file.");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    processPdfFileObject(file);
-    // Reset file input value so the same file can be re-selected if needed
-    e.target.value = "";
-  };
-
-  const handleAddCustomQA = () => {
-    const newQA: CustomQA = {
-      id: `qa-${Date.now()}`,
-      question: "",
-      answer: "",
-    };
-    updateActiveProfile((p) => ({
-      ...p,
-      profileFields: {
-        ...p.profileFields,
-        customQAs: [...(p.profileFields.customQAs || []), newQA],
-      },
-    }));
-  };
-
-  const handleUpdateCustomQA = (
-    id: string,
-    field: "question" | "answer",
-    val: string
-  ) => {
-    updateActiveProfile((p) => ({
-      ...p,
-      profileFields: {
-        ...p.profileFields,
-        customQAs: (p.profileFields.customQAs || []).map((item) =>
-          item.id === id ? { ...item, [field]: val } : item
-        ),
-      },
-    }));
-  };
-
-  const handleDeleteCustomQA = (id: string) => {
-    updateActiveProfile((p) => ({
-      ...p,
-      profileFields: {
-        ...p.profileFields,
-        customQAs: (p.profileFields.customQAs || []).filter((item) => item.id !== id),
-      },
-    }));
-  };
-
   const handleCopyPairingToken = () => {
     navigator.clipboard.writeText(LOCAL_PAIRING_TOKEN);
     setCopiedToken(true);
@@ -491,94 +467,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
     navigator.clipboard.writeText(batchBackendUrl);
     setCopiedEndpoint(true);
     setTimeout(() => setCopiedEndpoint(false), 2000);
-  };
-
-  // Item 1: Run full batch fill on sample form with abort/stop support
-  const handleExecuteBatchTest = async () => {
-    if (batchAbortControllerRef.current) {
-      batchAbortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    batchAbortControllerRef.current = controller;
-
-    setBatchLoading(true);
-    setBatchLatency(null);
-    try {
-      const response = await fetch("/batchAnswerForm", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          fields: SAMPLE_BATCH_FORM,
-          pageContext: {
-            title: "Senior Engineering Application — TechCorp Careers",
-            url: "https://techcorp.example.com/apply/senior-cloud-engineer",
-            headings: ["Senior Engineering Role", "Personal Information", "Qualifications"],
-          },
-          context: activeProfile.pdfFile
-            ? {
-                type: "pdf",
-                data: activeProfile.pdfFile.base64,
-                mimeType: activeProfile.pdfFile.mimeType,
-              }
-            : activeProfile.textContext
-            ? {
-                type: "text",
-                data: activeProfile.textContext,
-              }
-            : null,
-          systemInstruction: activeProfile.systemInstruction,
-          model: activeProfile.selectedModel,
-          userProfile: activeProfile.profileFields,
-        }),
-      });
-
-      const data = await response.json();
-      if (data.success && Array.isArray(data.answers)) {
-        const valMap: Record<string, string> = {};
-        const metaMap: Record<string, BatchFieldAnswer> = {};
-        data.answers.forEach((ans: BatchFieldAnswer) => {
-          valMap[ans.id] = ans.answer;
-          metaMap[ans.id] = ans;
-        });
-        setBatchFormValues(valMap);
-        setBatchAnswersMetadata(metaMap);
-        setBatchLatency(data.timeMs || 0);
-        setBatchModelUsed(data.modelUsed || activeProfile.selectedModel);
-      } else {
-        alert(data.error || "Batch generation failed");
-      }
-    } catch (err: any) {
-      if (err.name === "AbortError") {
-        console.log("Batch fill test cancelled by user.");
-      } else {
-        console.error("Batch autofill test error:", err);
-        alert(err.message || "Failed to execute batch test");
-      }
-    } finally {
-      batchAbortControllerRef.current = null;
-      setBatchLoading(false);
-    }
-  };
-
-  const handleStopBatchTest = () => {
-    if (batchAbortControllerRef.current) {
-      batchAbortControllerRef.current.abort();
-      batchAbortControllerRef.current = null;
-    }
-    setBatchLoading(false);
-  };
-
-  const handleResetBatchForm = () => {
-    if (batchAbortControllerRef.current) {
-      batchAbortControllerRef.current.abort();
-      batchAbortControllerRef.current = null;
-    }
-    setBatchFormValues({});
-    setBatchAnswersMetadata({});
-    setBatchLatency(null);
   };
 
   return (
@@ -604,14 +492,14 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               </span>
             </div>
             <p className="text-sm text-slate-300 max-w-2xl leading-relaxed">
-              Create targeted applicant personas with custom resumes, system prompts, and Q&As.
-               The Chrome Extension supports 1-click persona switching and <strong>single-request batch form autofilling</strong>.
+              Create targeted applicant personas with custom resumes, system prompts, and Q&As. The
+              Chrome Extension supports 1-click persona switching and{" "}
+              <strong>single-request batch form autofilling</strong>.
             </p>
           </div>
 
           {/* Save Actions */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {/* Pairing Token Button */}
             <button
               onClick={handleCopyPairingToken}
               className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-medium shadow-md transition"
@@ -625,7 +513,6 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               <span>{copiedToken ? "Copied" : "Copy Pair ID"}</span>
             </button>
 
-            {/* Save Button */}
             <button
               onClick={handleSaveConfig}
               disabled={saving}
@@ -638,10 +525,15 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               ) : (
                 <Save className="w-4 h-4" />
               )}
-              <span>{saving ? "Saving..." : savedRecently ? "Saved All Profiles!" : "Save & Sync Personas"}</span>
+              <span>
+                {saving
+                  ? "Saving..."
+                  : savedRecently
+                    ? "Saved All Profiles!"
+                    : "Save & Sync Personas"}
+              </span>
             </button>
 
-            {/* Clear Synced Data Button */}
             <button
               onClick={handlePurgeContext}
               disabled={purging}
@@ -655,12 +547,14 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               ) : (
                 <Trash2 className="w-4 h-4" />
               )}
-              <span>{purging ? "Clearing..." : purgedRecently ? "Cleared!" : "Clear Synced Data"}</span>
+              <span>
+                {purging ? "Clearing..." : purgedRecently ? "Cleared!" : "Clear Synced Data"}
+              </span>
             </button>
           </div>
         </div>
 
-        {/* Item 2: Multi-Persona Switching Bar */}
+        {/* Multi-Persona Switching Bar */}
         <div className="mt-6 pt-5 border-t border-blue-900/50 space-y-3">
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
@@ -766,7 +660,11 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
               className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition"
               title="Copy Batch Backend URL"
             >
-              {copiedEndpoint ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedEndpoint ? (
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
             </button>
           </div>
           <div className="text-slate-400 text-[11px] flex items-center gap-2">
@@ -812,9 +710,7 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         >
           <FileText className="w-4 h-4 text-emerald-400" />
           <span>Resume / PDF Document Grounding</span>
-          {activeProfile.pdfFile && (
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-          )}
+          {activeProfile.pdfFile && <span className="w-2 h-2 rounded-full bg-emerald-400"></span>}
         </button>
 
         <button
@@ -842,804 +738,40 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
         </button>
       </div>
 
-      {/* Sub Tab: Live Batch Form Autofill Tester (Item 1) */}
+      {/* Sub-Tab Content */}
       {activeSubTab === "batch-tester" && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-r from-blue-950/40 via-indigo-950/30 to-slate-900 border border-blue-800/40 rounded-3xl p-6 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-amber-400" />
-                  <span>Item 1: High-Speed Batch Form Autofilling Demo</span>
-                </h3>
-                <p className="text-xs text-slate-300 mt-1">
-                  Instead of making 12 sequential API calls taking 20+ seconds, the extension makes <strong>a single request</strong> to <code className="text-emerald-400 font-mono">/batchAnswerForm</code>. All fields are resolved coherently with Gemini Structured Outputs.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleResetBatchForm}
-                  disabled={batchLoading || Object.keys(batchFormValues).length === 0}
-                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition disabled:opacity-40"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Clear Form</span>
-                </button>
-
-                {batchLoading ? (
-                  <button
-                    onClick={handleStopBatchTest}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <Square className="w-3.5 h-3.5 fill-current" />
-                    <span>Stop Autofill</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleExecuteBatchTest}
-                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    <Play className="w-4 h-4 fill-white" />
-                    <span>Fill All 12 Fields in 1 Request</span>
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {batchLatency !== null && (
-              <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2 text-emerald-300 font-semibold">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>All 12 fields filled in a single round-trip!</span>
-                </div>
-                <div className="flex items-center gap-4 text-slate-300 font-mono text-[11px]">
-                  <span className="flex items-center gap-1 text-amber-300">
-                    <Clock className="w-3.5 h-3.5" />
-                    Latency: {batchLatency} ms
-                  </span>
-                  <span className="text-blue-300">Model: {batchModelUsed}</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Form Fields Simulation Grid */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-              <span>Interactive Application Form (12 Fields)</span>
-              <span className="text-[11px] text-blue-400 font-normal">
-                Using Persona: <strong>{activeProfile.name}</strong>
-              </span>
-            </h4>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {SAMPLE_BATCH_FORM.map((field) => {
-                const filledVal = batchFormValues[field.id] || "";
-                const meta = batchAnswersMetadata[field.id];
-
-                return (
-                  <div
-                    key={field.id}
-                    className={`p-4 rounded-2xl border transition-all ${
-                      filledVal
-                        ? "bg-slate-950/90 border-emerald-500/40 ring-1 ring-emerald-500/20"
-                        : "bg-slate-950 border-slate-800"
-                    } ${field.type === "textarea" ? "sm:col-span-2" : ""}`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-semibold text-slate-200">
-                        {field.question}
-                        {field.required && <span className="text-red-400 ml-1">*</span>}
-                      </label>
-                      {meta && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          Confidence: {Math.round((meta.confidence || 0.95) * 100)}%
-                        </span>
-                      )}
-                    </div>
-
-                    {field.type === "textarea" ? (
-                      <textarea
-                        rows={3}
-                        value={filledVal}
-                        onChange={(e) =>
-                          setBatchFormValues({ ...batchFormValues, [field.id]: e.target.value })
-                        }
-                        placeholder={field.placeholder}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 resize-none leading-relaxed"
-                      />
-                    ) : field.type === "select" ? (
-                      <select
-                        value={filledVal}
-                        onChange={(e) =>
-                          setBatchFormValues({ ...batchFormValues, [field.id]: e.target.value })
-                        }
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                      >
-                        <option value="">Select an option...</option>
-                        {field.options?.map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type={field.type}
-                        value={filledVal}
-                        onChange={(e) =>
-                          setBatchFormValues({ ...batchFormValues, [field.id]: e.target.value })
-                        }
-                        placeholder={field.placeholder}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                      />
-                    )}
-
-                    {meta?.reasoning && (
-                      <p className="text-[10px] text-slate-400 mt-1 italic">
-                        ↳ {meta.reasoning}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <BatchTesterSubTab
+          activeProfile={activeProfile}
+          batchFormValues={batchFormValues}
+          setBatchFormValues={setBatchFormValues}
+          batchAnswersMetadata={batchAnswersMetadata}
+          setBatchAnswersMetadata={setBatchAnswersMetadata}
+          batchLoading={batchLoading}
+          setBatchLoading={setBatchLoading}
+          batchLatency={batchLatency}
+          setBatchLatency={setBatchLatency}
+          batchModelUsed={batchModelUsed}
+          setBatchModelUsed={setBatchModelUsed}
+          sampleBatchForm={SAMPLE_BATCH_FORM}
+        />
       )}
 
-      {/* Sub Tab: Structured Profile & Q&A */}
       {activeSubTab === "profile" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left 2 Cols: Personal & Career Details */}
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <UserIcon className="w-4 h-4 text-blue-400" />
-                  <span>Personal Coordinates ({activeProfile.name})</span>
-                </h3>
-                <span className="text-[11px] text-slate-400">Used for basic form fields</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Full Name
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.fullName || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, fullName: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. Jane Doe"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Target / Current Job Title
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.jobTitle || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, jobTitle: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. Senior Cloud Engineer"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={activeProfile.profileFields.email || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, email: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. jane@example.com"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Phone Number
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.phone || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, phone: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. +1 (555) 019-2834"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Location / Current Address
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.location || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, location: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. San Francisco, CA, United States"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 transition"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Career & Qualifications */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Briefcase className="w-4 h-4 text-emerald-400" />
-                  <span>Career & Academic History</span>
-                </h3>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Years of Experience
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.yearsOfExperience || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: {
-                          ...p.profileFields,
-                          yearsOfExperience: e.target.value,
-                        },
-                      }))
-                    }
-                    placeholder="e.g. 8+ years"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Education & Degrees
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.education || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, education: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. M.S. in Computer Science"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Core Skills & Key Technologies
-                  </label>
-                  <input
-                    type="text"
-                    value={activeProfile.profileFields.coreSkills || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, coreSkills: e.target.value },
-                      }))
-                    }
-                    placeholder="e.g. TypeScript, React, Cloud Run, Python, SQL, Docker"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Executive Summary / Bio
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={activeProfile.profileFields.bioSummary || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, bioSummary: e.target.value },
-                      }))
-                    }
-                    placeholder="Brief 2-3 sentence overview of this persona..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500 resize-none leading-relaxed"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Custom Q&A Repository */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-purple-400" />
-                    <span>Persona Q&A Repository</span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Pre-saved answers for work authorization, salary, start date, relocation, etc.
-                  </p>
-                </div>
-                <button
-                  onClick={handleAddCustomQA}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/40 text-purple-300 text-xs font-semibold transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Question</span>
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {(activeProfile.profileFields.customQAs || []).map((qa, index) => (
-                  <div
-                    key={qa.id || index}
-                    className="p-4 rounded-2xl bg-slate-950 border border-slate-800/90 space-y-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        type="text"
-                        value={qa.question}
-                        onChange={(e) => handleUpdateCustomQA(qa.id, "question", e.target.value)}
-                        placeholder="e.g. What is your notice period or earliest start date?"
-                        className="flex-1 bg-transparent border-b border-slate-800 focus:border-purple-500 text-slate-200 text-xs font-medium pb-1 focus:outline-none"
-                      />
-                      <button
-                        onClick={() => handleDeleteCustomQA(qa.id)}
-                        className="p-1 rounded-lg text-slate-500 hover:text-red-400 hover:bg-slate-900 transition"
-                        title="Delete question"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <textarea
-                      rows={2}
-                      value={qa.answer}
-                      onChange={(e) => handleUpdateCustomQA(qa.id, "answer", e.target.value)}
-                      placeholder="Your preferred answer for this question..."
-                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-800/80 text-slate-200 text-xs focus:outline-none focus:border-purple-500 resize-none"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Col: Web Presence & Quick Summary Card */}
-          <div className="space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <LinkIcon className="w-4 h-4 text-cyan-400" />
-                <span>Web Presence</span>
-              </h3>
-
-              <div className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    LinkedIn Profile URL
-                  </label>
-                  <input
-                    type="url"
-                    value={activeProfile.profileFields.linkedinUrl || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, linkedinUrl: e.target.value },
-                      }))
-                    }
-                    placeholder="https://linkedin.com/in/..."
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    GitHub / Code Repository
-                  </label>
-                  <input
-                    type="url"
-                    value={activeProfile.profileFields.githubUrl || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, githubUrl: e.target.value },
-                      }))
-                    }
-                    placeholder="https://github.com/..."
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Portfolio / Website
-                  </label>
-                  <input
-                    type="url"
-                    value={activeProfile.profileFields.portfolioUrl || ""}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({
-                        ...p,
-                        profileFields: { ...p.profileFields, portfolioUrl: e.target.value },
-                      }))
-                    }
-                    placeholder="https://yourportfolio.dev"
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Information Card */}
-            <div className="p-5 rounded-3xl bg-blue-950/30 border border-blue-900/50 space-y-3">
-              <div className="flex items-center gap-2 text-blue-300 font-semibold text-xs">
-                <Sparkles className="w-4 h-4" />
-                <span>Multi-Profile Architecture</span>
-              </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                When you click "AutoFill Form" or "Batch Fill" in Chrome, the extension automatically injects the active persona profile (<strong className="text-white">{activeProfile.name}</strong>).
-              </p>
-            </div>
-          </div>
-        </div>
+        <ProfileSubTab activeProfile={activeProfile} updateActiveProfile={updateActiveProfile} />
       )}
 
-      {/* Sub Tab: AI Persona & Instructions */}
       {activeSubTab === "instructions" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    <span>System Instruction ({activeProfile.name})</span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Governs tone, technical emphasis, and phrasing when answering forms.
-                  </p>
-                </div>
-              </div>
-
-              <textarea
-                rows={6}
-                value={activeProfile.systemInstruction}
-                onChange={(e) =>
-                  updateActiveProfile((p) => ({ ...p, systemInstruction: e.target.value }))
-                }
-                className="w-full p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono focus:outline-none focus:border-indigo-500 leading-relaxed"
-                placeholder="Enter system prompt for Gemini..."
-              />
-            </div>
-
-            {/* Model & Behavior Settings */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-blue-400" />
-                <span>Preferred Gemini Model Architecture</span>
-              </h3>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {AVAILABLE_GEMINI_MODELS.map((m) => (
-                  <div
-                    key={m.id}
-                    onClick={() =>
-                      updateActiveProfile((p) => ({ ...p, selectedModel: m.id }))
-                    }
-                    className={`p-3.5 rounded-2xl border cursor-pointer transition-all ${
-                      activeProfile.selectedModel === m.id
-                        ? "bg-blue-600/15 border-blue-500 ring-1 ring-blue-500"
-                        : "bg-slate-950 border-slate-800 hover:border-slate-700"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-xs text-white">{m.name}</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded border ${m.badgeColor}`}>
-                        {m.speed}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
-                      {m.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Answer Style Settings */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-emerald-400" />
-                <span>Answer Style</span>
-              </h3>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Tone</label>
-                  <select
-                    value={activeProfile.tone || "professional"}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({ ...p, tone: e.target.value as any }))
-                    }
-                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="professional">Professional</option>
-                    <option value="conversational">Conversational</option>
-                    <option value="formal">Formal</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                    Length Strategy
-                    <span className="text-slate-500 font-normal ml-1">(for open-ended questions)</span>
-                  </label>
-                  <select
-                    value={activeProfile.lengthStrategy || "balanced"}
-                    onChange={(e) =>
-                      updateActiveProfile((p) => ({ ...p, lengthStrategy: e.target.value as any }))
-                    }
-                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="concise">Concise (~30% of limit)</option>
-                    <option value="balanced">Balanced (~60-75% of limit)</option>
-                    <option value="fill_limit">Fill Limit (~90% of limit)</option>
-                  </select>
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-500">
-                Tone and length apply to long-form fields (textareas, cover letters, descriptions).
-                Short fields always use concise answers.
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Persona Tips
-              </h4>
-              <ul className="space-y-2.5 text-xs text-slate-300 leading-relaxed">
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400">•</span>
-                  <span>Use <strong>first-person ("I am...", "My experience...")</strong> for job applications.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-blue-400">•</span>
-                  <span>Gemini 3.7 Flash supports batch reasoning for 20+ fields in under 1.5 seconds.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
+        <InstructionsSubTab
+          activeProfile={activeProfile}
+          updateActiveProfile={updateActiveProfile}
+        />
       )}
 
-      {/* Sub Tab: Master Grounding Document */}
       {activeSubTab === "documents" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-400" />
-                    <span>Grounding Resume PDF ({activeProfile.name})</span>
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Gemini 3.7/3.5 models process PDF documents natively using multimodal document grounding.
-                  </p>
-                </div>
-              </div>
-
-              {/* PDF Drop / Upload Zone */}
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingPdf(true);
-                }}
-                onDragEnter={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingPdf(true);
-                }}
-                onDragLeave={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingPdf(false);
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setIsDraggingPdf(false);
-                  const file = e.dataTransfer.files?.[0];
-                  if (file) {
-                    processPdfFileObject(file);
-                  }
-                }}
-                className={`border-2 border-dashed rounded-3xl p-6 text-center space-y-4 transition ${
-                  isDraggingPdf
-                    ? "border-blue-500 bg-blue-950/40 ring-2 ring-blue-500/30"
-                    : "border-slate-800 hover:border-slate-700 bg-slate-950/60"
-                }`}
-              >
-                {activeProfile.pdfFile ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center">
-                      <FileText className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <div className="font-semibold text-sm text-white">
-                        {activeProfile.pdfFile.name}
-                      </div>
-                      <div className="text-xs text-slate-400 font-mono">
-                        {(activeProfile.pdfFile.size / 1024).toFixed(1)} KB •{" "}
-                        {activeProfile.pdfFile.mimeType}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() =>
-                          updateActiveProfile((p) => ({ ...p, pdfFile: null }))
-                        }
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-semibold transition"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Remove Document</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center">
-                      <FileUp className="w-6 h-6" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-xs font-medium text-slate-200">
-                        Upload custom PDF resume for {activeProfile.name}
-                      </p>
-                      <p className="text-[11px] text-slate-400">PDF up to 25MB supported</p>
-                    </div>
-                    <div className="flex items-center justify-center gap-3 pt-2">
-                      <label className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer transition shadow-md shadow-blue-600/30">
-                        <span>Browse Local PDF</span>
-                        <input
-                          type="file"
-                          accept="application/pdf"
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Text Fallback */}
-              <div className="space-y-2 pt-3 border-t border-slate-800">
-                <label className="block text-xs font-semibold text-slate-300">
-                  Or Paste Raw Text Knowledge Base
-                </label>
-                <textarea
-                  rows={4}
-                  value={activeProfile.textContext || ""}
-                  onChange={(e) =>
-                    updateActiveProfile((p) => ({ ...p, textContext: e.target.value }))
-                  }
-                  placeholder="Paste additional notes, publications, or project summaries..."
-                  className="w-full p-3.5 rounded-2xl bg-slate-950 border border-slate-800 text-slate-200 text-xs font-mono focus:outline-none focus:border-emerald-500 leading-relaxed"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Document Grounding
-              </h4>
-              <ul className="space-y-2.5 text-xs text-slate-300 leading-relaxed">
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-400">✓</span>
-                  <span><strong>Multimodal PDF Reading:</strong> Native reasoning across layout, dates, bullet points, and tables.</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-emerald-400">✓</span>
-                  <span><strong>Dedicated Per-Persona Files:</strong> You can attach different resumes for different roles.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
+        <DocumentsSubTab activeProfile={activeProfile} updateActiveProfile={updateActiveProfile} />
       )}
 
-      {/* Sub Tab: Preview & Inspector */}
-      {activeSubTab === "preview" && (
-        <div className="space-y-6">
-          <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                  <Eye className="w-4 h-4 text-purple-400" />
-                  <span>Assembled Context Inspector ({activeProfile.name})</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Full synthesized prompt payload sent during extension single-field and batch fills.
-                </p>
-              </div>
-            </div>
-
-            <pre className="p-5 rounded-2xl bg-slate-950 border border-slate-800/90 text-slate-300 font-mono text-xs overflow-x-auto leading-relaxed whitespace-pre-wrap max-h-[500px]">
-{`--- ACTIVE PERSONA: ${activeProfile.name} (${activeProfile.id}) ---
-
---- SYSTEM INSTRUCTION ---
-${activeProfile.systemInstruction}
-
---- USER STRUCTURED PROFILE ---
-Full Name: ${activeProfile.profileFields.fullName || "N/A"}
-Title: ${activeProfile.profileFields.jobTitle || "N/A"}
-Email: ${activeProfile.profileFields.email || "N/A"} | Phone: ${activeProfile.profileFields.phone || "N/A"}
-Location: ${activeProfile.profileFields.location || "N/A"}
-Experience: ${activeProfile.profileFields.yearsOfExperience || "N/A"}
-Education: ${activeProfile.profileFields.education || "N/A"}
-Skills: ${activeProfile.profileFields.coreSkills || "N/A"}
-Portfolio: ${activeProfile.profileFields.portfolioUrl || "N/A"} | LinkedIn: ${activeProfile.profileFields.linkedinUrl || "N/A"}
-Bio: ${activeProfile.profileFields.bioSummary || "N/A"}
-
---- PRESET Q&A REPOSITORY ---
-${(activeProfile.profileFields.customQAs || [])
-  .map((qa, i) => `${i + 1}. Q: ${qa.question}\n   A: ${qa.answer}`)
-  .join("\n\n")}
-
---- ATTACHED GROUNDING DOCUMENT ---
-${
-  activeProfile.pdfFile
-    ? `[Document: ${activeProfile.pdfFile.name} (${(
-        activeProfile.pdfFile.size / 1024
-      ).toFixed(1)} KB)]`
-    : activeProfile.textContext
-    ? `[Text Context: ${activeProfile.textContext.slice(0, 200)}...]`
-    : "[None attached]"
-}`}
-            </pre>
-          </div>
-        </div>
-      )}
+      {activeSubTab === "preview" && <PreviewSubTab activeProfile={activeProfile} />}
     </div>
   );
 }

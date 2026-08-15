@@ -112,7 +112,7 @@ export interface BatchAnswerRequest {
   } | null;
   systemInstruction?: string | null;
   model?: string | null;
-  userProfile?: Record<string, any> | null;
+  userProfile?: UserProfileFields | null;
   activeProfileId?: string | null;
   pairingToken?: string | null;
 }

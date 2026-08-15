@@ -59,7 +59,8 @@ const LONG_FORM_KEYWORDS = [
 const EMAIL_PATTERNS = /email|e-mail|@/i;
 const PHONE_PATTERNS = /\bphone\b|\btel\b|\bmobile\b|\bfax\b/i;
 const NUMERIC_PATTERNS = /years|age|number of|quantity|count|salary|compensation|gpa|grade/i;
-const SHORT_FORM_PATTERNS = /\bcoupon\b|\bpromo(?:tion)?\s+code\b|\bzip\b|\bpostal\b|\bnickname\b|\b(?:verification|access|reference)\s+code\b/i;
+const SHORT_FORM_PATTERNS =
+  /\bcoupon\b|\bpromo(?:tion)?\s+code\b|\bzip\b|\bpostal\b|\bnickname\b|\b(?:verification|access|reference)\s+code\b/i;
 
 function normalize(text: string): string {
   return (text || "").toLowerCase().trim();
@@ -83,7 +84,10 @@ export function classifyField(field: FieldClassificationInput): FieldCategory {
   }
 
   // Textarea / contenteditable with substantial maxLength → long_form
-  if ((tagName === "textarea" || tagName === "div") && (field.maxLength === -1 || (field.maxLength && field.maxLength > 200))) {
+  if (
+    (tagName === "textarea" || tagName === "div") &&
+    (field.maxLength === -1 || (field.maxLength && field.maxLength > 200))
+  ) {
     return "long_form";
   }
 

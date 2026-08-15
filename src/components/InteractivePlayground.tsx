@@ -4,16 +4,10 @@ import {
   FileText,
   FileUp,
   Globe,
-  CheckCircle2,
   AlertCircle,
-  RotateCcw,
   Loader2,
   Settings2,
   Trash2,
-  Eye,
-  Info,
-  Cpu,
-  Zap,
 } from "lucide-react";
 import { ModelSelector } from "./ModelSelector";
 import { AVAILABLE_GEMINI_MODELS } from "../types";
@@ -151,7 +145,7 @@ export function InteractivePlayground({
 
   // Call the /answerQuestion endpoint
   const queryGemini = async (question: string): Promise<{ answer: string; model: string }> => {
-    let contextPayload: any = null;
+    let contextPayload: { type: "text" | "pdf"; data: string; mimeType?: string } | null = null;
 
     if (contextType === "text" && textContext.trim()) {
       contextPayload = {
@@ -217,9 +211,10 @@ export function InteractivePlayground({
       
       setFormData((prev) => ({ ...prev, [fieldKey]: res.answer }));
       addLog(`✅ Filled "${fieldKey}" using ${res.model} -> Dispatched synthetic events.`);
-    } catch (err: any) {
-      setErrorMsg(err.message || "Failed to fill field");
-      addLog(`❌ Error on "${fieldKey}": ${err.message}`);
+    } catch (err) {
+      const error = err as Error;
+      setErrorMsg(error.message || "Failed to fill field");
+      addLog(`❌ Error on "${fieldKey}": ${error.message}`);
     } finally {
       setActiveField(null);
     }
@@ -253,9 +248,10 @@ export function InteractivePlayground({
         const res = await queryGemini(item.prompt);
         setFormData((prev) => ({ ...prev, [item.key]: res.answer }));
         addLog(`✅ [${i + 1}/${fieldsToFill.length}] ${item.label} (${res.model}): "${res.answer.slice(0, 36)}..."`);
-      } catch (err: any) {
-        addLog(`❌ [${i + 1}/${fieldsToFill.length}] ${item.label}: ${err.message}`);
-        setErrorMsg(err.message);
+      } catch (err) {
+        const error = err as Error;
+        addLog(`❌ [${i + 1}/${fieldsToFill.length}] ${item.label}: ${error.message}`);
+        setErrorMsg(error.message);
         break;
       }
     }

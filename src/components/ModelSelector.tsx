@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   AVAILABLE_GEMINI_MODELS,
-  GeminiModelOption,
 } from "../types";
 import {
   Cpu,
@@ -11,7 +10,6 @@ import {
   ChevronDown,
   Layers,
   SlidersHorizontal,
-  Info,
 } from "lucide-react";
 
 interface ModelSelectorProps {

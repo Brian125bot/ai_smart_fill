@@ -7,7 +7,6 @@ import {
   Copy,
   Check,
   Layers,
-  Sparkles,
   ShieldCheck,
   Cpu,
   Workflow,

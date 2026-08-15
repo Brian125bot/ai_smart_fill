@@ -1,6 +1,10 @@
+import { GeminiContext } from "./src/validation";
+
 export type ContextType = "pdf" | "text" | "none";
 
-export function getContextType(ctx: any): ContextType {
+export function getContextType(
+  ctx: GeminiContext | null | undefined | { type?: string }
+): ContextType {
   if (ctx?.type === "pdf") return "pdf";
   if (ctx?.type === "text") return "text";
   return "none";
@@ -21,8 +25,8 @@ const RETIRED_BASED_ON_RE = /\bbased on the error message and context\b/i;
 const RETIRED_HEADING_RE = /#{1,6}\s+the\s+error\b/i;
 
 const CODE_FENCE_RE = /```/;
-const SOURCE_LIKE_FENCE_RE = /```(?:js|ts|jsx|tsx|py|java|go|rs|cpp|c|rb|php|json|sh|bash|html|css|yaml|yml|sql)\b/i;
-const STACK_LIKE_IN_FENCE_RE = /(?:throw\s+new\s+\w*Error|at\s+\S+\s*\(.*:\d+:\d+\)|Traceback|\b\d+:\d+:\d+\b)/;
+const STACK_LIKE_IN_FENCE_RE =
+  /(?:throw\s+new\s+\w*Error|at\s+\S+\s*\(.*:\d+:\d+\)|Traceback|\b\d+:\d+:\d+\b)/;
 const MARKDOWN_ERROR_HEADING_RE = /^#{1,6}\s+.*error/im;
 const PUNCTUATED_ERROR_HEADING_RE = /^#{1,6}\s+.*\bError\b/im;
 const DIAGNOSTIC_HEADING_WORDS =
@@ -50,7 +54,11 @@ export function looksLikeErrorLeak(text: string): { leaked: boolean; reason: str
   // traced it...") is not blanked.
   if (BASED_ON_ERROR_RE.test(text) && DIAGNOSTIC_HEADING_WORDS.test(text))
     return { leaked: true, reason: "based_on_error" };
-  if (ERROR_MESSAGE_RE.test(text) && /\bcontext\b/i.test(text) && DIAGNOSTIC_HEADING_WORDS.test(text))
+  if (
+    ERROR_MESSAGE_RE.test(text) &&
+    /\bcontext\b/i.test(text) &&
+    DIAGNOSTIC_HEADING_WORDS.test(text)
+  )
     return { leaked: true, reason: "error_context" };
 
   // Markdown heading + "error" / "Error" alone fires too often on legitimate long-form
@@ -59,7 +67,9 @@ export function looksLikeErrorLeak(text: string): { leaked: boolean; reason: str
   // text, or a structural companion (stack frame / Exception header) before blanking.
   if (
     (MARKDOWN_ERROR_HEADING_RE.test(text) || PUNCTUATED_ERROR_HEADING_RE.test(text)) &&
-    (DIAGNOSTIC_HEADING_WORDS.test(text) || STACK_FRAME_RE.test(text) || EXCEPTION_HEADER_RE.test(text))
+    (DIAGNOSTIC_HEADING_WORDS.test(text) ||
+      STACK_FRAME_RE.test(text) ||
+      EXCEPTION_HEADER_RE.test(text))
   ) {
     return { leaked: true, reason: "markdown_error_heading" };
   }

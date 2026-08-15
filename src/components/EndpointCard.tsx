@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, Check, Terminal, Shield, ArrowUpRight, Zap, Code } from "lucide-react";
+import { Copy, Check, Shield, Code } from "lucide-react";
 
 export function EndpointCard() {
   const [copied, setCopied] = useState(false);

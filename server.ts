@@ -1,12 +1,27 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Content, GenerateContentConfig } from "@google/genai";
+import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import { createContextStore, SyncedUserContext, ContextStore } from "./store";
 import { classifyField, FieldCategory, isLongForm } from "./fieldClassifier";
 import { retrieveRelevantQAs, QAEntry } from "./qaRetrieval";
 import { getContextType, looksLikeErrorLeak, logLeak } from "./errorLeak";
+import {
+  AnswerQuestionSchema,
+  BatchAnswerFormSchema,
+  SyncProfileSchema,
+  RememberAnswerSchema,
+  AnswerQuestionInput,
+  BatchAnswerFormInput,
+  SyncProfileInput,
+  RememberAnswerInput,
+  UserProfileFields,
+  PersonaProfile,
+  GeminiContext,
+  BatchFormField,
+} from "./src/validation";
 
 dotenv.config();
 
@@ -83,15 +98,47 @@ export function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
-// Helper function to execute Gemini requests with retry and automatic fallback for 503 / 429 errors
+type GenerationResult = { text: string; effectiveModel: string };
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === "object" && "message" in err) {
+    const msg = (err as { message: unknown }).message;
+    if (typeof msg === "string") return msg;
+    return String(msg);
+  }
+  return String(err);
+}
+
+function isTransientError(err: unknown): boolean {
+  const errMsg = errorMessage(err);
+  const status = (err as { status?: number | string }).status;
+  const code = (err as { code?: number | string }).code;
+  const errStatus = status ?? code ?? "";
+  return (
+    errMsg.includes("503") ||
+    errMsg.includes("high demand") ||
+    errMsg.includes("UNAVAILABLE") ||
+    errMsg.includes("429") ||
+    errMsg.includes("RESOURCE_EXHAUSTED") ||
+    errMsg.includes("NOT_FOUND") ||
+    errMsg.includes("404") ||
+    errMsg.toLowerCase().includes("not found") ||
+    errStatus === 503 ||
+    errStatus === 429 ||
+    errStatus === 404 ||
+    errStatus === "UNAVAILABLE" ||
+    errStatus === "NOT_FOUND"
+  );
+}
+
 export async function generateWithRetryAndFallback(
   ai: GoogleGenAI,
   requestedModel: string,
-  contents: any,
-  config: Record<string, any>,
+  contents: string | Content | Content[],
+  config: GenerateContentConfig,
   backoffMs?: (attempt: number) => number
-): Promise<{ text: string; effectiveModel: string }> {
-  // Build a model candidate chain starting with requestedModel, then fallback alternatives
+): Promise<GenerationResult> {
   const candidateModels = [
     requestedModel,
     "gemini-3.7-flash",
@@ -102,10 +149,9 @@ export async function generateWithRetryAndFallback(
     "gemini-3.0-flash",
   ].filter((val, idx, arr) => arr.indexOf(val) === idx);
 
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (const modelToTry of candidateModels) {
-    // Retry up to 3 times per model with exponential backoff (e.g. 500ms, 1200ms)
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const response = await ai.models.generateContent({
@@ -116,27 +162,11 @@ export async function generateWithRetryAndFallback(
 
         const text = response.text?.trim() ?? "";
         return { text, effectiveModel: modelToTry };
-      } catch (err: any) {
+      } catch (err) {
         lastError = err;
-        const errMsg = err?.message || "";
-        const errStatus = err?.status || err?.code || "";
-        const isTransient =
-          errMsg.includes("503") ||
-          errMsg.includes("high demand") ||
-          errMsg.includes("UNAVAILABLE") ||
-          errMsg.includes("429") ||
-          errMsg.includes("RESOURCE_EXHAUSTED") ||
-          errMsg.includes("NOT_FOUND") ||
-          errMsg.includes("404") ||
-          errMsg.toLowerCase().includes("not found") ||
-          errStatus === 503 ||
-          errStatus === 429 ||
-          errStatus === 404 ||
-          errStatus === "UNAVAILABLE" ||
-          errStatus === "NOT_FOUND";
+        const errMsg = errorMessage(err);
 
-        if (!isTransient) {
-          // Non-transient errors (e.g. invalid arguments) should not be retried blindly
+        if (!isTransientError(err)) {
           throw err;
         }
 
@@ -145,7 +175,6 @@ export async function generateWithRetryAndFallback(
         );
 
         if (attempt < 3) {
-          // Jittered backoff: 400ms * attempt + random jitter
           const delay = backoffMs
             ? backoffMs(attempt)
             : attempt * 400 + Math.floor(Math.random() * 200);
@@ -153,29 +182,21 @@ export async function generateWithRetryAndFallback(
         }
       }
     }
-    console.warn(`[Gemini] Model ${modelToTry} is currently unavailable. Trying next fallback candidate...`);
+    console.warn(
+      `[Gemini] Model ${modelToTry} is currently unavailable. Trying next fallback candidate...`
+    );
   }
 
-  throw lastError || new Error("All Gemini models are temporarily experiencing high demand. Please retry in a moment.");
+  throw (
+    lastError ||
+    new Error(
+      "All Gemini models are temporarily experiencing high demand. Please retry in a moment."
+    )
+  );
 }
 
-interface AnswerQuestionRequest {
-  question: string;
-  context?: {
-    type: "text" | "pdf";
-    data: string;
-    mimeType?: string;
-  } | null;
-  systemInstruction?: string | null;
-  model?: string | null;
-  userId?: string | null;
-  pairingToken?: string | null;
-  userProfile?: Record<string, any> | null;
-}
-
-// Helper to synthesize structured user profile into a crisp AI grounding block
 export function synthesizeProfileContext(
-  profile: Record<string, any> | null | undefined,
+  profile: UserProfileFields | null | undefined,
   question?: string
 ): string {
   if (!profile || Object.keys(profile).length === 0) return "";
@@ -195,12 +216,12 @@ export function synthesizeProfileContext(
 
   if (Array.isArray(profile.customQAs) && profile.customQAs.length > 0) {
     const relevant = question
-      ? retrieveRelevantQAs(question, profile.customQAs as QAEntry[], 5)
+      ? retrieveRelevantQAs(question, profile.customQAs, 5)
       : profile.customQAs;
 
     if (relevant.length > 0) {
       lines.push("\nPreset Custom Q&A Reference:");
-      relevant.forEach((qa: any, idx: number) => {
+      relevant.forEach((qa: QAEntry, idx: number) => {
         if (qa.question && qa.answer) {
           lines.push(`Q${idx + 1}: ${qa.question}\nA: ${qa.answer}`);
         }
@@ -225,7 +246,6 @@ function mostCommon(values: string[]): string {
   return best;
 }
 
-// Re-export for backward compatibility
 export type { SyncedUserContext } from "./store";
 
 export interface CreateAppOptions {
@@ -234,22 +254,40 @@ export interface CreateAppOptions {
   contextStore?: ContextStore;
 }
 
+interface LongFormResult {
+  id: string;
+  question: string;
+  answer: string;
+  confidence: number;
+  reasoning: string;
+  style: string;
+  model: string;
+  error?: string;
+}
+
+interface GroundingResult {
+  promptPrefix: string;
+  config: GenerateContentConfig;
+}
+
 export async function createApp(options: CreateAppOptions = {}): Promise<express.Express> {
   const app = express();
   const ai = options.aiClient || getGeminiClient();
   const store = options.contextStore || createContextStore();
 
-  // Increase payload limit for base64 PDF uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  // CORS middleware to allow the Chrome extension and local web clients to access the API.
-  // Reflects the origin only when it is a local/dev or browser-extension origin, so that
-  // arbitrary third-party websites cannot read responses from this local proxy.
-  //
-  // When EXTENSION_ID is set, only that exact chrome-extension origin is accepted. When it
-  // is unset (dev convenience) any chrome-extension:// origin is allowed. The IPv6 loopback
-  // (::1) is permitted for localhost-first environments. No `*` fallback is emitted.
+  // Rate limiting for local abuse prevention
+  const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests. Please slow down." },
+  });
+  app.use("/api", apiLimiter);
+
   const chromeExtensionOrigin = process.env.EXTENSION_ID
     ? `chrome-extension://${process.env.EXTENSION_ID}`
     : null;
@@ -258,15 +296,15 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     const origin = req.headers.origin || "";
     let isAllowed = false;
     if (!origin) {
-      isAllowed = true; // same-origin or non-browser clients (no CORS needed)
+      isAllowed = true;
     } else if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
       isAllowed = true;
     } else if (chromeExtensionOrigin && origin === chromeExtensionOrigin) {
       isAllowed = true;
     } else if (!chromeExtensionOrigin && /^chrome-extension:\/\//.test(origin)) {
-      isAllowed = true; // dev fallback: extension id not configured
+      isAllowed = true;
     } else if (/^moz-extension:\/\//.test(origin)) {
-      isAllowed = true; // Firefox extension host
+      isAllowed = true;
     }
 
     if (isAllowed && origin) {
@@ -274,10 +312,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       res.setHeader("Vary", "Origin");
     }
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept"
-    );
+    res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
     if (req.method === "OPTIONS") {
       res.sendStatus(204);
       return;
@@ -285,7 +320,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     next();
   });
 
-  // Health check endpoint
   app.get("/api/health", (_req: Request, res: Response) => {
     res.json({
       status: "ok",
@@ -297,7 +331,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     });
   });
 
-  // Get available models list endpoint
   app.get("/api/models", (_req: Request, res: Response) => {
     res.json({
       defaultModel: DEFAULT_GEMINI_MODEL,
@@ -309,11 +342,26 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   // Dashboard & Extension Sync Endpoints
   // ==========================================
 
-  // Save/publish dashboard user context to backend sync cache
   app.post("/api/syncProfile", (req: Request, res: Response): void => {
     try {
-      const body = req.body;
-      const pairingToken = (body.pairingToken || body.userId || body.uid || body.email || "").trim();
+      const parsed = SyncProfileSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          error: "Invalid sync profile payload.",
+          details: parsed.error.issues.map((i) => i.message),
+        });
+        return;
+      }
+      const body: SyncProfileInput = parsed.data;
+
+      const pairingToken = (
+        body.pairingToken ||
+        body.userId ||
+        body.uid ||
+        body.email ||
+        ""
+      ).trim();
 
       if (!pairingToken) {
         res.status(400).json({
@@ -323,17 +371,19 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         return;
       }
 
-      const activeProfile = Array.isArray(body.profiles) && body.activeProfileId
-        ? body.profiles.find((p: any) => p.id === body.activeProfileId) || body.profiles[0]
-        : null;
+      const activeProfile =
+        Array.isArray(body.profiles) && body.activeProfileId
+          ? body.profiles.find((p) => p.id === body.activeProfileId) || body.profiles[0]
+          : null;
 
       const syncedContext: SyncedUserContext = {
         userId: body.userId || body.uid || pairingToken,
-        pairingToken: pairingToken,
+        pairingToken,
         email: body.email || "",
         displayName: body.displayName || "",
         profiles: Array.isArray(body.profiles) ? body.profiles : [],
-        activeProfileId: body.activeProfileId || (activeProfile ? activeProfile.id : "profile-default"),
+        activeProfileId:
+          body.activeProfileId || (activeProfile ? activeProfile.id : "profile-default"),
         systemInstruction: body.systemInstruction || activeProfile?.systemInstruction || "",
         selectedModel: body.selectedModel || activeProfile?.selectedModel || DEFAULT_GEMINI_MODEL,
         usePageContext: typeof body.usePageContext === "boolean" ? body.usePageContext : true,
@@ -346,7 +396,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         updatedAt: new Date().toISOString(),
       };
 
-      // Store in memory under pairingToken and userId and email if available
       store.set(pairingToken, syncedContext);
       if (body.userId && body.userId !== pairingToken) {
         store.set(body.userId, syncedContext);
@@ -358,21 +407,20 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       res.status(200).json({
         success: true,
         message: "User context successfully synced with backend cache.",
-        pairingToken: pairingToken,
+        pairingToken,
         profilesCount: syncedContext.profiles?.length || 1,
         activeProfileId: syncedContext.activeProfileId,
         updatedAt: syncedContext.updatedAt,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error in /api/syncProfile:", err);
       res.status(500).json({
         success: false,
-        error: err?.message || "Failed to sync profile context.",
+        error: errorMessage(err) || "Failed to sync profile context.",
       });
     }
   });
 
-  // Retrieve user context by pairingToken / UID / email for the Chrome Extension
   app.get("/api/userContext/:token", (req: Request, res: Response): void => {
     try {
       const token = decodeURIComponent(req.params.token || "").trim();
@@ -391,21 +439,29 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         return;
       }
 
-      // If not in cache, respond gracefully
       res.status(404).json({
         success: false,
         error: `No synced context found for pairing token "${token}". Make sure to click "Save & Sync Context" on the web dashboard first.`,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error in /api/userContext:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to fetch user context." });
+      res
+        .status(500)
+        .json({ success: false, error: errorMessage(err) || "Failed to fetch user context." });
     }
   });
 
-  // POST endpoint for extension sync (also accepts token in body or query)
   app.post("/api/userContext", (req: Request, res: Response): void => {
     try {
-      const token = (req.body?.pairingToken || req.body?.userId || req.body?.email || req.query?.token || "").toString().trim();
+      const token = (
+        req.body?.pairingToken ||
+        req.body?.userId ||
+        req.body?.email ||
+        req.query?.token ||
+        ""
+      )
+        .toString()
+        .trim();
       if (!token) {
         res.status(400).json({ success: false, error: "Pairing token or userId is required." });
         return;
@@ -425,13 +481,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         success: false,
         error: `No synced context found for token "${token}". Please save your settings in the web dashboard first.`,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error in POST /api/userContext:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to fetch user context." });
+      res
+        .status(500)
+        .json({ success: false, error: errorMessage(err) || "Failed to fetch user context." });
     }
   });
 
-    // POST /api/purgeContext - Delete user context file and aliases from memory and disk
   app.post("/api/purgeContext", (req: Request, res: Response): void => {
     try {
       const token = (
@@ -440,15 +497,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         req.body?.email ||
         req.query?.token ||
         ""
-      ).toString().trim();
+      )
+        .toString()
+        .trim();
 
       if (!token) {
-        res.status(400).json({ success: false, error: "Pairing token, userId, or email is required." });
+        res
+          .status(400)
+          .json({ success: false, error: "Pairing token, userId, or email is required." });
         return;
       }
 
       if (!store.has(token)) {
-        res.status(404).json({ success: false, error: `No synced context found for token "${token}".` });
+        res
+          .status(404)
+          .json({ success: false, error: `No synced context found for token "${token}".` });
         return;
       }
 
@@ -458,9 +521,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         success: true,
         message: "User context purged successfully.",
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error in POST /api/purgeContext:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to purge user context." });
+      res
+        .status(500)
+        .json({ success: false, error: errorMessage(err) || "Failed to purge user context." });
     }
   });
 
@@ -469,27 +534,25 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   // ==========================================
   app.post("/answerQuestion", async (req: Request, res: Response): Promise<void> => {
     try {
-      // 1. Validate request payload
-      const body = req.body as AnswerQuestionRequest;
-      if (!body || typeof body.question !== "string" || !body.question.trim()) {
+      const parsed = AnswerQuestionSchema.safeParse(req.body);
+      if (!parsed.success) {
         res.status(400).json({
-          error: "Bad Request: 'question' is required and must be a non-empty string.",
+          error: "Bad Request: invalid payload.",
+          details: parsed.error.issues.map((i) => i.message),
         });
         return;
       }
+      const body: AnswerQuestionInput = parsed.data;
 
       const question = body.question.trim();
       const pairingToken = (body.pairingToken || body.userId || "").trim();
-      
-      let context = body.context;
-      let systemInstruction = body.systemInstruction;
-      let userProfile = body.userProfile;
-      let requestedModel =
-        body.model && typeof body.model === "string" && body.model.trim()
-          ? body.model.trim()
-          : null;
 
-      // Check server sync cache if pairingToken is supplied and context/profile is not explicitly in payload
+      let context: GeminiContext | null | undefined = body.context;
+      let systemInstruction: string | null | undefined = body.systemInstruction;
+      let userProfile: UserProfileFields | null | undefined = body.userProfile;
+      let requestedModel: string | null =
+        body.model && body.model.trim() ? body.model.trim() : null;
+
       if (pairingToken) {
         const cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
         if (cached) {
@@ -514,11 +577,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const profileContextStr = synthesizeProfileContext(userProfile, question);
 
-      // 3. Build contents based on context type and profile grounding
-      let contents: any;
+      let contents: string | Content;
 
       if (context && context.type === "pdf" && context.data) {
-        // PDF Context: Native document understanding with inlineData + profile context
         const cleanBase64 = context.data.replace(/^data:[^;]+;base64,/, "");
         const mimeType = context.mimeType || "application/pdf";
 
@@ -529,20 +590,9 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         promptText += `Based on the provided document and applicant profile, answer the following question accurately, concisely, and directly for a form field. Do not provide meta-analysis, code diagnoses, or error analysis essays. Output only the value for the field:\n\nQuestion: ${question}`;
 
         contents = {
-          parts: [
-            {
-              inlineData: {
-                mimeType,
-                data: cleanBase64,
-              },
-            },
-            {
-              text: promptText,
-            },
-          ],
+          parts: [{ inlineData: { mimeType, data: cleanBase64 } }, { text: promptText }],
         };
       } else {
-        // Text Context or Profile Grounding or Question only
         let promptText = "";
         if (profileContextStr) {
           promptText += `${profileContextStr}\n\n`;
@@ -554,17 +604,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         contents = promptText;
       }
 
-      // 4. Model configuration
-      const config: Record<string, any> = {};
-      if (
-        systemInstruction &&
-        typeof systemInstruction === "string" &&
-        systemInstruction.trim().length > 0
-      ) {
+      const config: GenerateContentConfig = {};
+      if (systemInstruction && systemInstruction.trim().length > 0) {
         config.systemInstruction = systemInstruction.trim();
       }
 
-      // 5. Generate content using requested Gemini Model with robust retries & fallback
       let { text: answer, effectiveModel } = await generateWithRetryAndFallback(
         ai,
         requestedModel,
@@ -587,26 +631,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         withheld = true;
       }
 
-      const payload: Record<string, any> = { answer, model: effectiveModel };
+      const payload: { answer: string; model: string; withheld?: boolean } = {
+        answer,
+        model: effectiveModel,
+      };
       if (withheld) payload.withheld = true;
       res.status(200).json(payload);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error in /answerQuestion:", error);
-      const errorMessage = error?.message || "Internal server error generating answer with Gemini.";
       res.status(500).json({
-        error: errorMessage,
+        error: errorMessage(error) || "Internal server error generating answer with Gemini.",
       });
     }
   });
 
-  // Helper: build grounding prefix shared by batch and individual prompts
   function buildGroundingPrefix(
-    userProfile: Record<string, any> | null | undefined,
+    userProfile: UserProfileFields | null | undefined,
     question: string,
-    pageContext?: any,
-    context?: any,
-    systemInstruction?: string
-  ): { promptPrefix: string; config: Record<string, any> } {
+    pageContext: { url?: string; title?: string; headings?: string[] } | null | undefined,
+    context: GeminiContext | null | undefined,
+    systemInstruction?: string | null
+  ): GroundingResult {
     const profileContextStr = synthesizeProfileContext(userProfile, question);
     let promptPrefix = "";
     if (profileContextStr) promptPrefix += `${profileContextStr}\n\n`;
@@ -625,37 +670,35 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       promptPrefix += `--- GROUNDING TEXT CONTEXT ---\n${context.data}\n------------------------------\n\n`;
     }
 
-    const config: Record<string, any> = {};
-    if (systemInstruction && typeof systemInstruction === "string" && systemInstruction.trim().length > 0) {
+    const config: GenerateContentConfig = {};
+    if (systemInstruction && systemInstruction.trim().length > 0) {
       config.systemInstruction = systemInstruction.trim();
     }
 
     return { promptPrefix, config };
   }
 
-  // Helper: generate a single long-form answer
   async function generateLongFormAnswer(
     ai: GoogleGenAI,
     model: string,
-    field: any,
+    field: BatchFormField,
     category: FieldCategory,
     groundingPrefix: string,
-    context: any,
-    config: Record<string, any>,
+    context: GeminiContext | null | undefined,
+    config: GenerateContentConfig,
     tone: string = "professional",
     lengthStrategy: string = "balanced"
-  ): Promise<any> {
+  ): Promise<LongFormResult> {
     const maxLen = field.maxLength && field.maxLength > 0 ? field.maxLength : 1000;
-    const ratio =
-      lengthStrategy === "concise" ? 0.3 : lengthStrategy === "fill_limit" ? 0.9 : 0.7;
+    const ratio = lengthStrategy === "concise" ? 0.3 : lengthStrategy === "fill_limit" ? 0.9 : 0.7;
     const targetLen = Math.floor(maxLen * ratio);
 
     const toneLine =
       tone === "conversational"
         ? "- Write naturally and warmly, as you would in a personal statement or cover letter."
         : tone === "formal"
-        ? "- Write in a formal, polished register appropriate for an official application."
-        : "- Write in first person as the applicant, specifically and professionally.";
+          ? "- Write in a formal, polished register appropriate for an official application."
+          : "- Write in first person as the applicant, specifically and professionally.";
 
     let promptText = groundingPrefix;
     promptText += `You are answering a job application or professional form.\n\n`;
@@ -666,8 +709,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       lengthStrategy === "concise"
         ? "about 30%"
         : lengthStrategy === "fill_limit"
-        ? "close to the full"
-        : "roughly 60-75%";
+          ? "close to the full"
+          : "roughly 60-75%";
     promptText += `Target length: aim for approximately ${targetLen} characters (${rangeLabel} of the limit).\n\n`;
     promptText += `Instructions:\n`;
     promptText += toneLine + "\n";
@@ -676,27 +719,27 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     promptText += `- Do NOT include meta-commentary, code blocks, or markdown.\n`;
     promptText += `- Output ONLY the answer text, nothing else.`;
 
-    let contents: any;
+    let contents: string | Content;
     if (context && context.type === "pdf" && context.data) {
       const cleanBase64 = context.data.replace(/^data:[^;]+;base64,/, "");
       const mimeType = context.mimeType || "application/pdf";
       contents = {
-        parts: [
-          { inlineData: { mimeType, data: cleanBase64 } },
-          { text: promptText },
-        ],
+        parts: [{ inlineData: { mimeType, data: cleanBase64 } }, { text: promptText }],
       };
     } else {
       contents = promptText;
     }
 
-    const { text, effectiveModel } = await generateWithRetryAndFallback(ai, model, contents, config);
+    const { text, effectiveModel } = await generateWithRetryAndFallback(
+      ai,
+      model,
+      contents,
+      config
+    );
 
-    // Enforce maxLength hard cap
     let answer = (text || "").trim();
     if (answer.length > maxLen) {
       answer = answer.slice(0, maxLen);
-      // Try to cut at a sentence boundary
       const lastPeriod = answer.lastIndexOf(".");
       const lastNewline = answer.lastIndexOf("\n");
       const cutPoint = Math.max(lastPeriod, lastNewline);
@@ -716,8 +759,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
     };
   }
 
-  // Concurrency limiter for parallel promises (resilient: per-task errors are
-  // captured as { __error } rather than aborting the whole batch).
   async function runWithConcurrency<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = new Array(tasks.length);
     let index = 0;
@@ -726,8 +767,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
         const i = index++;
         try {
           results[i] = await tasks[i]();
-        } catch (err: any) {
-          results[i] = { __error: err?.message || String(err) } as unknown as T;
+        } catch (err) {
+          results[i] = { __error: errorMessage(err) } as unknown as T;
         }
       }
     }
@@ -737,44 +778,31 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
   }
 
   // ==========================================
-  // POST /batchAnswerForm Endpoint (Item 1: Batch Form Autofilling)
+  // POST /batchAnswerForm Endpoint
   // ==========================================
   app.post("/batchAnswerForm", async (req: Request, res: Response): Promise<void> => {
     const startTime = Date.now();
     try {
-      // 1. Validate request payload
-      const body = req.body;
-      if (!body || !Array.isArray(body.fields) || body.fields.length === 0) {
+      const parsed = BatchAnswerFormSchema.safeParse(req.body);
+      if (!parsed.success) {
         res.status(400).json({
           success: false,
-          error: "Bad Request: 'fields' must be a non-empty array of form fields.",
+          error: "Bad Request: invalid payload.",
+          details: parsed.error.issues.map((i) => i.message),
         });
         return;
       }
-
-      const fields: Array<{
-        id: string;
-        name?: string;
-        type?: string;
-        question: string;
-        placeholder?: string;
-        options?: string[];
-        maxLength?: number;
-        tagName?: string;
-        rows?: number;
-      }> = body.fields;
+      const body: BatchAnswerFormInput = parsed.data;
+      const fields: BatchFormField[] = body.fields;
 
       const pairingToken = (body.pairingToken || body.userId || "").trim();
-      let context = body.context;
-      let systemInstruction = body.systemInstruction;
-      let userProfile = body.userProfile;
-      let requestedModel =
-        body.model && typeof body.model === "string" && body.model.trim()
-          ? body.model.trim()
-          : null;
+      let context: GeminiContext | null | undefined = body.context;
+      let systemInstruction: string | null | undefined = body.systemInstruction;
+      let userProfile: UserProfileFields | null | undefined = body.userProfile;
+      let requestedModel: string | null =
+        body.model && body.model.trim() ? body.model.trim() : null;
 
-      // Check server sync cache if pairingToken is supplied and context/profile is not explicitly in payload
-      let cached: any;
+      let cached: SyncedUserContext | undefined;
       if (pairingToken) {
         cached = store.get(pairingToken) || store.get(pairingToken.toLowerCase());
         if (cached) {
@@ -799,19 +827,17 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       if (!requestedModel) requestedModel = DEFAULT_GEMINI_MODEL;
       const pageContext = body.pageContext;
 
-      // Resolve persona tone / length strategy from the active synced profile.
       let personaTone = "professional";
       let personaLengthStrategy = "balanced";
       if (cached && Array.isArray(cached.profiles) && cached.profiles.length > 0) {
         const activeProfile =
-          cached.profiles.find((p: any) => p.id === cached.activeProfileId) || cached.profiles[0];
+          cached.profiles.find((p) => p.id === cached.activeProfileId) || cached.profiles[0];
         if (activeProfile) {
           if (activeProfile.tone) personaTone = activeProfile.tone;
           if (activeProfile.lengthStrategy) personaLengthStrategy = activeProfile.lengthStrategy;
         }
       }
 
-      // 2. Classify fields
       const classified = fields.map((f) => ({
         field: f,
         category: classifyField(f),
@@ -820,10 +846,21 @@ export async function createApp(options: CreateAppOptions = {}): Promise<express
       const shortFields = classified.filter((c) => !isLongForm(c.category));
       const longFields = classified.filter((c) => isLongForm(c.category));
 
-      const allAnswers: any[] = [];
+      interface BatchAnswer {
+        id?: string;
+        question?: string;
+        answer: string;
+        confidence?: number;
+        reasoning?: string;
+        style?: string;
+        model?: string;
+        error?: string;
+        withheld?: boolean;
+        __error?: string;
+      }
+      const allAnswers: BatchAnswer[] = [];
       let effectiveModel = requestedModel;
 
-      // 3. Process short fields via batch prompt (existing logic)
       if (shortFields.length > 0) {
         const joinedQuestions = shortFields.map((c) => c.field.question).join(" ");
         const profileContextStr = synthesizeProfileContext(userProfile, joinedQuestions);
@@ -866,70 +903,71 @@ Requirements:
 4. Keep answers crisp and appropriate for form inputs. Do not wrap answers in conversational explanations.
 5. Return ONLY the valid JSON array without backticks or markdown fences.`;
 
-        let contents: any;
+        let contents: string | Content;
         if (context && context.type === "pdf" && context.data) {
           const cleanBase64 = context.data.replace(/^data:[^;]+;base64,/, "");
           const mimeType = context.mimeType || "application/pdf";
           contents = {
-            parts: [
-              { inlineData: { mimeType, data: cleanBase64 } },
-              { text: promptText },
-            ],
+            parts: [{ inlineData: { mimeType, data: cleanBase64 } }, { text: promptText }],
           };
         } else {
           contents = promptText;
         }
 
-        const batchConfig: Record<string, any> = {
+        const batchConfig: GenerateContentConfig = {
           responseMimeType: "application/json",
         };
-        if (systemInstruction && typeof systemInstruction === "string" && systemInstruction.trim().length > 0) {
+        if (systemInstruction && systemInstruction.trim().length > 0) {
           batchConfig.systemInstruction = systemInstruction.trim();
         }
 
         const { text: rawOutput, effectiveModel: batchModel } = await generateWithRetryAndFallback(
-          ai, requestedModel, contents, batchConfig
+          ai,
+          requestedModel,
+          contents,
+          batchConfig
         );
         effectiveModel = batchModel;
 
-        let parsedAnswers: any[] = [];
+        let parsedAnswers: BatchAnswer[] = [];
         try {
           const cleaned = rawOutput
             .replace(/^```(?:json)?\s*/i, "")
             .replace(/\s*```$/i, "")
             .trim();
-          parsedAnswers = JSON.parse(cleaned);
-          if (!Array.isArray(parsedAnswers) && typeof parsedAnswers === "object" && Array.isArray((parsedAnswers as any).answers)) {
-            parsedAnswers = (parsedAnswers as any).answers;
-          }
-
-          // Valid JSON but neither an array nor { answers: [...] } is an unexpected
-          // shape — surface it as an error rather than silently returning 0 answers.
-          if (!Array.isArray(parsedAnswers)) {
+          const parsed: unknown = JSON.parse(cleaned);
+          if (
+            !Array.isArray(parsed) &&
+            typeof parsed === "object" &&
+            parsed !== null &&
+            Array.isArray((parsed as { answers?: unknown[] }).answers)
+          ) {
+            parsedAnswers = (parsed as { answers: BatchAnswer[] }).answers;
+          } else if (Array.isArray(parsed)) {
+            parsedAnswers = parsed as BatchAnswer[];
+          } else {
             throw new Error(
               "Gemini returned unparseable structured output: " + (rawOutput || "").slice(0, 200)
             );
           }
 
-          if (Array.isArray(parsedAnswers)) {
-            parsedAnswers = parsedAnswers.map((ans) => {
-              const val = typeof ans?.answer === "string" ? ans.answer : "";
-              const leak = looksLikeErrorLeak(val);
-              if (leak.leaked) {
-                logLeak({
-                  endpoint: "/batchAnswerForm",
-                  fieldId: ans?.id,
-                  question: ans?.question || "",
-                  contextType: getContextType(context),
-                  model: effectiveModel,
-                  reason: leak.reason,
-                  raw: val,
-                });
-                return { ...ans, answer: "", withheld: true };
-              }
-              return { ...ans, style: "short" };
-            });
-          }
+          parsedAnswers = parsedAnswers.map((ans) => {
+            const val = typeof ans?.answer === "string" ? ans.answer : "";
+            const leak = looksLikeErrorLeak(val);
+            if (leak.leaked) {
+              logLeak({
+                endpoint: "/batchAnswerForm",
+                fieldId: ans?.id,
+                question: ans?.question || "",
+                contextType: getContextType(context),
+                model: effectiveModel,
+                reason: leak.reason,
+                raw: val,
+              });
+              return { ...ans, answer: "", withheld: true };
+            }
+            return { ...ans, style: "short" };
+          });
         } catch (jsonErr) {
           console.warn("JSON parse error in /batchAnswerForm (short fields):", jsonErr);
           throw new Error(
@@ -940,11 +978,14 @@ Requirements:
         allAnswers.push(...parsedAnswers);
       }
 
-      // 4. Process long-form fields via dedicated parallel calls (resilient + per-field scoring)
       if (longFields.length > 0) {
         const longTasks = longFields.map((c) => {
           const { promptPrefix, config: longConfig } = buildGroundingPrefix(
-            userProfile, c.field.question, pageContext, context, systemInstruction
+            userProfile,
+            c.field.question,
+            pageContext,
+            context,
+            systemInstruction
           );
           return () =>
             generateLongFormAnswer(
@@ -962,7 +1003,7 @@ Requirements:
 
         const longResults = await runWithConcurrency(longTasks, 3);
         longFields.forEach((c, i) => {
-          const r = longResults[i] as any;
+          const r = longResults[i] as LongFormResult & { __error?: string };
           if (r && r.__error) {
             allAnswers.push({
               id: c.field.id,
@@ -972,7 +1013,7 @@ Requirements:
               reasoning: "Generation failed for this field.",
               style: "long_form",
               error: r.__error,
-            });
+            } as LongFormResult & { __error?: string });
           } else {
             const leak = looksLikeErrorLeak(typeof r?.answer === "string" ? r.answer : "");
             if (leak.leaked) {
@@ -985,7 +1026,9 @@ Requirements:
                 reason: leak.reason,
                 raw: r.answer || "",
               });
-              allAnswers.push({ ...r, answer: "", withheld: true });
+              allAnswers.push({ ...r, answer: "", withheld: true } as LongFormResult & {
+                __error?: string;
+              });
             } else {
               allAnswers.push(r);
             }
@@ -993,16 +1036,14 @@ Requirements:
         });
       }
 
-      // 5. Sort answers back into original field order
       const fieldOrder = new Map(fields.map((f, i) => [f.id, i]));
       allAnswers.sort((a, b) => (fieldOrder.get(a.id) ?? 999) - (fieldOrder.get(b.id) ?? 999));
 
       const successful = allAnswers.filter((a) => !a.error);
       const timeMs = Date.now() - startTime;
 
-      // Derive the model actually used when only long-form fields ran.
       if (shortFields.length === 0 && longFields.length > 0 && successful.length > 0) {
-        const used = successful.map((a) => a?.model).filter(Boolean);
+        const used = successful.map((a) => a?.model).filter((m): m is string => Boolean(m));
         if (used.length) effectiveModel = mostCommon(used);
       }
 
@@ -1021,13 +1062,12 @@ Requirements:
         modelUsed: effectiveModel,
         timeMs,
       });
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error in /batchAnswerForm:", error);
-      const errorMessage = error?.message || "Internal server error in batch form autofill.";
       res.status(500).json({
         success: false,
         answers: [],
-        error: errorMessage,
+        error: errorMessage(error) || "Internal server error in batch form autofill.",
       });
     }
   });
@@ -1037,15 +1077,24 @@ Requirements:
   // ==========================================
   app.post("/api/rememberAnswer", (req: Request, res: Response): void => {
     try {
-      const { pairingToken, question, answer, profileId } = req.body;
-      const token = (pairingToken || "").trim();
+      const parsed = RememberAnswerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          error: "Invalid remember-answer payload.",
+          details: parsed.error.issues.map((i) => i.message),
+        });
+        return;
+      }
+      const body: RememberAnswerInput = parsed.data;
+      const token = (body.pairingToken || "").trim();
+      const questionText = typeof body.question === "string" ? body.question.trim() : "";
+      const answerText = typeof body.answer === "string" ? body.answer.trim() : "";
 
       if (!token) {
         res.status(400).json({ success: false, error: "pairingToken is required." });
         return;
       }
-      const questionText = typeof question === "string" ? question.trim() : "";
-      const answerText = typeof answer === "string" ? answer.trim() : "";
       if (!questionText || !answerText) {
         res.status(400).json({ success: false, error: "question and answer are required." });
         return;
@@ -1057,20 +1106,18 @@ Requirements:
         return;
       }
 
-      // Find active profile and add Q&A
       const profiles = Array.isArray(cached.profiles) ? cached.profiles : [];
-      let profile: any;
-      if (profileId) {
-        profile = profiles.find((p: any) => p.id === profileId) || null;
+      let profile: PersonaProfile | undefined;
+      if (body.profileId) {
+        profile = profiles.find((p) => p.id === body.profileId);
       } else {
-        profile =
-          profiles.find((p: any) => p.id === cached.activeProfileId) || profiles[0] || null;
+        profile = profiles.find((p) => p.id === cached.activeProfileId) || profiles[0];
       }
 
       if (!profile) {
         res.status(404).json({
           success: false,
-          error: profileId
+          error: body.profileId
             ? "No persona profile matches the provided profileId."
             : "No active persona profile found.",
         });
@@ -1084,10 +1131,9 @@ Requirements:
         profile.profileFields.customQAs = [];
       }
 
-      // Dedupe by normalized question; update the existing entry if present.
       const normalized = questionText.toLowerCase();
       const existing = profile.profileFields.customQAs.find(
-        (qa: any) => qa && qa.question && qa.question.trim().toLowerCase() === normalized
+        (qa) => qa && qa.question && qa.question.trim().toLowerCase() === normalized
       );
 
       let savedQAId: string;
@@ -1114,13 +1160,14 @@ Requirements:
         qaId: savedQAId,
         totalQAs: profile.profileFields.customQAs.length,
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error in /api/rememberAnswer:", err);
-      res.status(500).json({ success: false, error: err?.message || "Failed to save answer." });
+      res
+        .status(500)
+        .json({ success: false, error: errorMessage(err) || "Failed to save answer." });
     }
   });
 
-  // Vite middleware / static file serving (skipped when serveStatic is false, e.g. in tests)
   if (options.serveStatic !== false) {
     if (process.env.NODE_ENV !== "production") {
       const vite = await createViteServer({
@@ -1149,7 +1196,6 @@ async function startServer() {
   });
 }
 
-// Start the server only when this module is run directly (not when imported by tests).
 const isMainModule =
   !!process.argv[1] &&
   ["server.ts", "server.js", "server.cjs"].some((suffix) => process.argv[1].endsWith(suffix));

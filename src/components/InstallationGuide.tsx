@@ -9,7 +9,6 @@ import {
   HelpCircle,
   Copy,
   Check,
-  ExternalLink,
 } from "lucide-react";
 
 export function InstallationGuide() {

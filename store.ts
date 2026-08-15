@@ -1,18 +1,19 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { UserProfileFields, PersonaProfile } from "./src/validation";
 
 export interface SyncedUserContext {
   userId?: string;
   pairingToken: string;
   email?: string;
   displayName?: string;
-  profiles?: any[];
+  profiles?: PersonaProfile[];
   activeProfileId?: string;
   systemInstruction?: string;
   selectedModel?: string;
   usePageContext?: boolean;
-  userProfile?: Record<string, any>;
+  userProfile?: UserProfileFields;
   pdfData?: string | null;
   pdfName?: string | null;
   pdfSize?: number | null;
@@ -37,8 +38,6 @@ function safeName(token: string): string {
   return token.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 200);
 }
 
-// Stable hash so two distinct tokens that sanitize to the same name still get
-// unique files (e.g. "a/b" and "a_b" must not overwrite each other).
 function hashToken(token: string): string {
   return crypto.createHash("sha1").update(token).digest("hex").slice(0, 8);
 }
@@ -63,7 +62,9 @@ export class FileBackedContextStore implements ContextStore {
         fs.mkdirSync(this.dataDir, { recursive: true });
         return;
       }
-      const files = fs.readdirSync(this.dataDir).filter((f) => f.endsWith(".json") && f !== ALIASES_FILE);
+      const files = fs
+        .readdirSync(this.dataDir)
+        .filter((f) => f.endsWith(".json") && f !== ALIASES_FILE);
       for (const file of files) {
         try {
           const raw = fs.readFileSync(path.join(this.dataDir, file), "utf-8");
@@ -72,11 +73,13 @@ export class FileBackedContextStore implements ContextStore {
             this.cache.set(ctx.pairingToken, ctx);
             this.cache.set(ctx.pairingToken.toLowerCase(), ctx);
           }
-        } catch {
-          // skip corrupt files
+        } catch (err) {
+          console.warn(
+            `[store] Skipping corrupt file "${file}":`,
+            err instanceof Error ? err.message : err
+          );
         }
       }
-      // Load alias map (aliasToken -> canonicalToken)
       try {
         const aliasPath = path.join(this.dataDir, ALIASES_FILE);
         if (fs.existsSync(aliasPath)) {
@@ -86,35 +89,38 @@ export class FileBackedContextStore implements ContextStore {
             this.aliases.set(alias.toLowerCase(), canonical);
           }
         }
-      } catch {
-        // ignore unreadable alias map
+      } catch (err) {
+        console.warn("[store] Failed to load alias map:", err instanceof Error ? err.message : err);
       }
-    } catch {
-      // directory doesn't exist or can't be read; start empty
+    } catch (err) {
+      console.warn(
+        "[store] Failed to load from disk, starting empty:",
+        err instanceof Error ? err.message : err
+      );
     }
   }
 
-  private writeJson(filePath: string, obj: unknown): void {
+  private writeJson(filePath: string, obj: unknown): boolean {
     try {
       if (!fs.existsSync(this.dataDir)) {
         fs.mkdirSync(this.dataDir, { recursive: true });
       }
-      // Atomic write: serialize to a temp file then rename into place.
       const tmpPath = `${filePath}.tmp-${process.pid}`;
       fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), "utf-8");
       fs.renameSync(tmpPath, filePath);
-    } catch {
-      // best-effort; don't crash on disk errors
+      return true;
+    } catch (err) {
+      console.error(
+        `[store] Failed to write "${filePath}":`,
+        err instanceof Error ? err.message : err
+      );
+      return false;
     }
   }
 
   private persistAliases(): void {
-    try {
-      const aliasPath = path.join(this.dataDir, ALIASES_FILE);
-      this.writeJson(aliasPath, Object.fromEntries(this.aliases));
-    } catch {
-      // best-effort
-    }
+    const aliasPath = path.join(this.dataDir, ALIASES_FILE);
+    this.writeJson(aliasPath, Object.fromEntries(this.aliases));
   }
 
   private registerAlias(token: string, canonical: string): void {
@@ -138,9 +144,7 @@ export class FileBackedContextStore implements ContextStore {
     const canonical = context.pairingToken;
     this.cache.set(canonical, context);
     this.cache.set(canonical.toLowerCase(), context);
-    // Persist the canonical context once, under a name derived from the canonical token.
     this.writeJson(path.join(this.dataDir, canonicalFilename(canonical)), context);
-    // Register the key used by the caller as an alias (covers email/userId/lowercase lookups).
     this.registerAlias(token, canonical);
   }
 
@@ -148,9 +152,10 @@ export class FileBackedContextStore implements ContextStore {
     const lower = token.toLowerCase();
     const direct = this.cache.get(token) || this.cache.get(lower);
     const aliasTarget = this.aliases.get(lower);
-    const isAlias = Boolean(aliasTarget && (!direct || direct.pairingToken.toLowerCase() !== lower));
+    const isAlias = Boolean(
+      aliasTarget && (!direct || direct.pairingToken.toLowerCase() !== lower)
+    );
 
-    // Removing an alias must not remove the canonical context it points to.
     if (isAlias) {
       this.aliases.delete(lower);
       this.persistAliases();
@@ -170,8 +175,11 @@ export class FileBackedContextStore implements ContextStore {
       try {
         const filePath = path.join(this.dataDir, canonicalFilename(canonical));
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch {
-        // best-effort
+      } catch (err) {
+        console.error(
+          `[store] Failed to delete "${canonicalFilename(canonical)}":`,
+          err instanceof Error ? err.message : err
+        );
       }
     }
 
