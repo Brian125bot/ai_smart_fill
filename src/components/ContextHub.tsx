@@ -203,6 +203,8 @@ interface ContextHubProps {
 export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
   const [saving, setSaving] = useState(false);
   const [savedRecently, setSavedRecently] = useState(false);
+  const [purging, setPurging] = useState(false);
+  const [purgedRecently, setPurgedRecently] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
   const [copiedEndpoint, setCopiedEndpoint] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<
@@ -314,6 +316,29 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
       console.error("Save error:", err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePurgeContext = async () => {
+    if (!window.confirm("This will permanently delete all synced context data from the server. Continue?")) return;
+    setPurging(true);
+    try {
+      const res = await fetch("/api/purgeContext", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pairingToken: LOCAL_PAIRING_TOKEN }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPurgedRecently(true);
+        setTimeout(() => setPurgedRecently(false), 3000);
+      } else {
+        alert(data.error || "Failed to clear synced data.");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to clear synced data.");
+    } finally {
+      setPurging(false);
     }
   };
 
@@ -614,6 +639,23 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                 <Save className="w-4 h-4" />
               )}
               <span>{saving ? "Saving..." : savedRecently ? "Saved All Profiles!" : "Save & Sync Personas"}</span>
+            </button>
+
+            {/* Clear Synced Data Button */}
+            <button
+              onClick={handlePurgeContext}
+              disabled={purging}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-red-900/40 hover:bg-red-900/60 border border-red-700/50 text-red-300 text-xs font-medium shadow-md transition disabled:opacity-50"
+              title="Delete all synced context data from the server"
+            >
+              {purging ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : purgedRecently ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>{purging ? "Clearing..." : purgedRecently ? "Cleared!" : "Clear Synced Data"}</span>
             </button>
           </div>
         </div>

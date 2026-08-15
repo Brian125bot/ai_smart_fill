@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3
+
+Structural error-leak detection and UX improvements:
+
+- **Error-leak detector:** replaced four hardcoded substring checks (`failed to execute 'fetch'`, `non iso-8859-1`, `based on the error message and context`, `### the error`) with a structural detector (`errorLeak.ts`) that flags exception headers, stack frames, file paths, code fences, and markdown error headings. Retired phrasings are kept as exact-phrase fallbacks; loose structural rules require corroborating evidence to avoid false positives on legitimate STAR-format, markdown-headed, and code-sample answers.
+- **Withheld-answer highlight:** server-blanked answers now return `withheld: true` alongside the empty `answer` string. The extension applies `gemini-highlight-needs-review` to those fields — identical treatment to unmatched select options.
+- **Purge context button:** added a "Clear Synced Data" button in the dashboard (ContextHub) that calls `POST /api/purgeContext` with a confirmation prompt, matching the existing save/sync pattern.
+- **Chore:** bumped changelog and package version to 1.0.3.
+
 ## 1.0.2
 
 Cross-review follow-up fixes:
