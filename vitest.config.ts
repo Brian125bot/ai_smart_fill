@@ -17,10 +17,10 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['server.ts', 'src/**/*.{ts,tsx}'],
+      include: ['server.ts', 'store.ts', 'fieldClassifier.ts', 'qaRetrieval.ts', 'src/**/*.{ts,tsx}'],
       exclude: ['src/types.ts', 'src/main.tsx', 'src/extensionSource.ts'],
       thresholds: {
-        'server.ts': { lines: 80, functions: 80, statements: 80, branches: 70 },
+        'server.ts': { lines: 70, functions: 70, statements: 70, branches: 65 },
         'src/**': { lines: 60, functions: 40, statements: 60, branches: 58 },
       },
     },

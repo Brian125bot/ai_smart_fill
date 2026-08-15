@@ -29,7 +29,11 @@ The dashboard stores the selected model under `gemini_selected_model` and the sa
 
 The server creates a lazy `GoogleGenAI` client from `GEMINI_API_KEY`. It accepts text and base64 PDF context, synthesizes profile fields into a grounding block, and returns either a single answer or structured batch answers.
 
-The server cache is a process-local `Map`. `POST /api/syncProfile` writes to it and the extension reads from it through `/api/userContext`. Restarting the server clears the cache.
+The server cache uses a file-backed store (`store.ts`) that persists synced context to JSON files in the `data/` directory. `POST /api/syncProfile` writes to the store and the extension reads from it through `/api/userContext`. An in-memory map serves as a hot cache. The `data/` directory is gitignored.
+
+The batch endpoint (`POST /batchAnswerForm`) classifies fields into short-form and long-form categories using `fieldClassifier.ts`. Short fields are processed in one batch prompt; long-form fields are processed individually with dedicated prompts optimized for detail and length. Q&A retrieval (`qaRetrieval.ts`) scores saved custom Q&As against each field's question and injects only the most relevant matches.
+
+The `POST /api/rememberAnswer` endpoint saves accepted Q&A pairs back into a persona's bank for future retrieval.
 
 ### Extension
 

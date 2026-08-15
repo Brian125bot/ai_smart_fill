@@ -25,13 +25,16 @@ Set `GEMINI_API_KEY` only when running real Gemini requests. Unit and component 
 
 ## Test Layout
 
-- `tests/server/` covers routes, validation, CORS, static fallback, profile synthesis, and Gemini retry/fallback behavior.
+- `tests/server/` covers routes, validation, CORS, static fallback, profile synthesis, Gemini retry/fallback behavior, and the rememberAnswer endpoint.
 - `tests/extension/` covers generated manifest/source files, popup behavior, service-worker requests, content-script field handling, and ZIP contents.
 - `tests/components/` covers dashboard tabs, model selection, persona operations, playground requests, and installation/download UI.
+- `tests/store.test.ts` covers the file-backed persistence store.
+- `tests/fieldClassifier.test.ts` covers field classification for short-form vs long-form routing.
+- `tests/qaRetrieval.test.ts` covers Q&A relevance scoring and retrieval.
 - `tests/e2e/live.gemini.test.ts` contains explicit live API checks and is skipped by default.
 - `tests/setup.ts` provides jsdom cleanup, clipboard mocks, and canvas stubs for ZIP icon generation.
 
-Vitest uses the Node environment by default. Component tests opt into jsdom with file-level environment annotations. `vitest.config.ts` excludes `src/types.ts`, `src/main.tsx`, and generated-string source in `src/extensionSource.ts` from coverage.
+Vitest uses the Node environment by default. Component tests opt into jsdom with file-level environment annotations. `vitest.config.ts` covers `server.ts`, `store.ts`, `fieldClassifier.ts`, `qaRetrieval.ts`, and `src/**` with appropriate exclusions.
 
 ## Live Gemini Tests
 

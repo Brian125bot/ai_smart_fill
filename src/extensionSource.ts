@@ -5,7 +5,7 @@ export const MANIFEST_JSON = JSON.stringify(
   {
     manifest_version: 3,
     name: "Gemini Form Autofill & Assistant",
-    version: "2.0.0",
+    version: "1.0.0",
     description:
       "AI-powered multi-persona form autofill extension with instant batch completion powered by Gemini 3.7 via a local server proxy.",
     permissions: ["storage", "unlimitedStorage", "activeTab", "scripting"],
@@ -1770,6 +1770,8 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
           options: options,
           maxLength: el.maxLength > 0 ? el.maxLength : undefined,
           required: el.required || false,
+          tagName: el.tagName.toLowerCase(),
+          rows: el.rows || undefined,
         };
       });
 
@@ -1860,7 +1862,18 @@ export const CONTENT_JS = `// Gemini Form Autofill - Content Script with Lightni
         }
       }
     } else {
-      field.value = answer;
+      // Use native value setter to trigger React/Vue controlled component updates
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value'
+      )?.set || Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype, 'value'
+      )?.set;
+
+      if (nativeSetter) {
+        nativeSetter.call(field, answer);
+      } else {
+        field.value = answer;
+      }
     }
 
     field.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));

@@ -33,6 +33,9 @@ export interface UserProfileFields {
   customQAs?: CustomQA[];
 }
 
+export type AnswerTone = "professional" | "conversational" | "formal";
+export type AnswerLengthStrategy = "concise" | "balanced" | "fill_limit";
+
 export interface PersonaProfile {
   id: string;
   name: string;
@@ -41,6 +44,8 @@ export interface PersonaProfile {
   systemInstruction: string;
   selectedModel: string;
   usePageContext: boolean;
+  tone?: AnswerTone;
+  lengthStrategy?: AnswerLengthStrategy;
   profileFields: UserProfileFields;
   pdfFile?: {
     name: string;
@@ -81,6 +86,8 @@ export interface BatchFormField {
   options?: string[];
   maxLength?: number;
   required?: boolean;
+  tagName?: string;
+  rows?: number;
 }
 
 export interface BatchFieldAnswer {

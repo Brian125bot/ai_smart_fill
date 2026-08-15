@@ -1337,6 +1337,54 @@ export function ContextHub({ selectedModel, onModelChange }: ContextHubProps) {
                 ))}
               </div>
             </div>
+
+            {/* Answer Style Settings */}
+            <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-6 space-y-5">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-emerald-400" />
+                <span>Answer Style</span>
+              </h3>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">Tone</label>
+                  <select
+                    value={activeProfile.tone || "professional"}
+                    onChange={(e) =>
+                      updateActiveProfile((p) => ({ ...p, tone: e.target.value as any }))
+                    }
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="professional">Professional</option>
+                    <option value="conversational">Conversational</option>
+                    <option value="formal">Formal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Length Strategy
+                    <span className="text-slate-500 font-normal ml-1">(for open-ended questions)</span>
+                  </label>
+                  <select
+                    value={activeProfile.lengthStrategy || "balanced"}
+                    onChange={(e) =>
+                      updateActiveProfile((p) => ({ ...p, lengthStrategy: e.target.value as any }))
+                    }
+                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="concise">Concise (~30% of limit)</option>
+                    <option value="balanced">Balanced (~60-75% of limit)</option>
+                    <option value="fill_limit">Fill Limit (~90% of limit)</option>
+                  </select>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500">
+                Tone and length apply to long-form fields (textareas, cover letters, descriptions).
+                Short fields always use concise answers.
+              </p>
+            </div>
           </div>
 
           <div className="space-y-6">

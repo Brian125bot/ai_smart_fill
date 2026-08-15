@@ -145,7 +145,11 @@ Invalid questions return `400`. Gemini or server failures return `500` with an `
 
 ## `POST /batchAnswerForm`
 
-Generates structured answers for all fields in one request. `fields` must be a non-empty array.
+Generates structured answers for all fields. The server classifies each field into short-form or long-form and processes them with appropriate strategies.
+
+**Short-form fields** (name, email, phone, select, short text) are answered in a single batch request. **Long-form fields** (textareas, cover letters, descriptions) are answered individually with dedicated prompts optimized for detail and length, processed in parallel (max 3 concurrent).
+
+Each field may include `id`, `name`, `type`, `question`, `placeholder`, `options`, `maxLength`, `required`, `tagName`, and `rows`. The `tagName` and `rows` fields help the server classify fields more accurately.
 
 Request shape:
 
@@ -157,7 +161,16 @@ Request shape:
       "name": "full_name",
       "type": "text",
       "question": "What is your full name?",
-      "required": true
+      "required": true,
+      "tagName": "input"
+    },
+    {
+      "id": "cover-letter",
+      "type": "text",
+      "question": "Write a cover letter explaining your fit for this role",
+      "maxLength": 2000,
+      "tagName": "textarea",
+      "rows": 8
     }
   ],
   "pageContext": {
@@ -175,8 +188,6 @@ Request shape:
   "userProfile": {}
 }
 ```
-
-Each field may include `id`, `name`, `type`, `question`, `placeholder`, `options`, `maxLength`, and `required`. Select and radio answers are instructed to match supplied options.
 
 Success response:
 
@@ -198,6 +209,36 @@ Success response:
 ```
 
 Invalid fields return `400`. If Gemini returns unparseable structured output or another generation error, the route returns `500` with `success: false`, `answers: []`, and an `error` message.
+
+Long-form answers include a `style: "long_form"` field and may include a `model` field indicating which model generated that specific answer.
+
+## `POST /api/rememberAnswer`
+
+Saves an accepted question-answer pair back into a persona's Q&A bank. This is used by the extension's review mode to build up reusable answers over time.
+
+Request shape:
+
+```json
+{
+  "pairingToken": "local-user-profile",
+  "question": "Describe your experience with TypeScript.",
+  "answer": "I have 5+ years of experience with TypeScript...",
+  "profileId": "profile-cloud-lead"
+}
+```
+
+`profileId` is optional; if omitted, the active profile is used. Success response:
+
+```json
+{
+  "success": true,
+  "message": "Answer saved to Q&A bank.",
+  "qaId": "qa-remembered-1692000000000",
+  "totalQAs": 7
+}
+```
+
+The saved Q&A is available for future Q&A retrieval scoring. Returns `400` for missing fields or `404` for unknown tokens/profiles.
 
 ## Model Fallback Behavior
 

@@ -7,8 +7,13 @@ Gemini Form Autofill is a local dashboard, server-side Gemini proxy, and Chromiu
 ## Features
 
 - Detect visible, enabled inputs, textareas, selects, and contenteditable fields on the current page.
-- Answer one question with `POST /answerQuestion` or answer a complete form with one `POST /batchAnswerForm` request.
+- Answer one question with `POST /answerQuestion` or answer a complete form with `POST /batchAnswerForm`.
+- Classify fields into short-form and long-form categories; generate detailed, length-aware answers for open-ended resume questions (textareas, cover letters, descriptions).
 - Ground answers with text context, PDF documents, page title/URL/headings, persona fields, custom Q&A, and system instructions.
+- Score saved Q&As against each field's question and inject only the most relevant matches.
+- Configure per-persona answer tone (professional/conversational/formal) and length strategy (concise/balanced/fill_limit).
+- Persist synced profiles to local JSON files that survive server restarts.
+- Save accepted answers back to the persona's Q&A bank via `POST /api/rememberAnswer`.
 - Maintain multiple persona profiles in the dashboard and switch the active profile before syncing it to the extension.
 - Select one of the configured Gemini model IDs or provide a custom model identifier.
 - Download a generated extension ZIP containing the Manifest V3 source files and root-level icons.

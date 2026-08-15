@@ -99,4 +99,51 @@ describe('POST /batchAnswerForm', () => {
     });
     expect(captured.contents.parts[0].inlineData.data).toBe('XYZ');
   });
+
+  it('classifies fields and routes long-form to dedicated prompts', async () => {
+    const callLog: string[] = [];
+    const ai = makeFakeAi((args) => {
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Full name?') && text.includes('Task:')) {
+        callLog.push('batch');
+        return { text: JSON.stringify([{ id: 'full_name', question: 'Full name?', answer: 'Ada' }]) };
+      }
+      if (text.includes('Describe your experience') && text.includes('Character limit:')) {
+        callLog.push('long_form');
+        return { text: 'I have 5+ years of experience with TypeScript and React.' };
+      }
+      return { text: '[]' };
+    });
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({
+      fields: [
+        { id: 'full_name', question: 'Full name?', tagName: 'input' },
+        { id: 'experience', question: 'Describe your experience with distributed systems', maxLength: 2000, tagName: 'textarea', rows: 8 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(callLog).toContain('batch');
+    expect(callLog).toContain('long_form');
+    expect(res.body.answers).toHaveLength(2);
+  });
+
+  it('returns long-form answers with style metadata', async () => {
+    const ai = makeFakeAi((args) => {
+      const text = typeof args.contents === 'string' ? args.contents : args.contents?.parts?.[1]?.text || '';
+      if (text.includes('Describe your leadership')) {
+        return { text: 'I lead with a collaborative approach.' };
+      }
+      return { text: JSON.stringify([]) };
+    });
+    const app = await makeApp(ai);
+    const res = await request(app).post('/batchAnswerForm').send({
+      fields: [
+        { id: 'leadership', question: 'Describe your leadership style', maxLength: 500, tagName: 'textarea' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.answers[0].style).toBe('long_form');
+    expect(res.body.answers[0].answer.length).toBeLessThanOrEqual(500);
+  });
 });

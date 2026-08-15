@@ -75,6 +75,10 @@ Question extraction prefers, in order:
 
 The script assigns unique temporary IDs when fields share a name or ID. It sends all fields in one batch request, then applies returned answers and dispatches `input` and `change` events so common React, Vue, and Angular bindings can observe the updates.
 
+For value application, the content script uses the native `HTMLInputElement.prototype.value` setter (and the equivalent for textareas) when available. This ensures compatibility with React and Vue controlled components that monitor the native setter. For contenteditable elements, it sets `innerText` directly.
+
+The server classifies each field as short-form or long-form. Short fields are answered in a single batch prompt. Long-form fields (textareas, cover letters, descriptions) are answered individually with dedicated prompts optimized for detail, processed in parallel. Answers for long-form fields respect the persona's configured length strategy and tone.
+
 The stop control cancels application of returned answers when a request is already in flight. It does not cancel an HTTP request already sent to the server.
 
 ## Stored Extension Data
