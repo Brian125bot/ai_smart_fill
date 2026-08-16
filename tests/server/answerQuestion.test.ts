@@ -111,7 +111,7 @@ describe('POST /answerQuestion', () => {
 
     await request(app).post('/api/syncProfile').send({
       pairingToken: 'pdf-token',
-      pdfData: 'data:application/pdf;base64,PDFDATA123',
+      pdfData: 'data:application/pdf;base64,SGVsbG8=',
     });
 
     const res = await request(app)
@@ -119,7 +119,7 @@ describe('POST /answerQuestion', () => {
       .send({ question: 'Summarize document', pairingToken: 'pdf-token' });
 
     expect(res.status).toBe(200);
-    expect(captured.contents.parts[0].inlineData.data).toBe('PDFDATA123');
+    expect(captured.contents.parts[0].inlineData.data).toBe('SGVsbG8=');
   });
 
   it('degrades gracefully when cached PDF file is missing on disk', async () => {
