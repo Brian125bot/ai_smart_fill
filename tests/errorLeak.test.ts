@@ -47,10 +47,22 @@ describe('looksLikeErrorLeak — retired four-phrase leak set', () => {
 });
 
 describe('looksLikeErrorLeak — structural cues', () => {
-  it('flags V8 exception headers like TypeError:', () => {
+  it('flags V8 exception headers like TypeError: when accompanied by stack frames', () => {
     const r = looksLikeErrorLeak('TypeError: fetch failed\n at fetch (app.js:10:5)');
     expect(r.leaked).toBe(true);
+    expect(['exception_header', 'stack_frame']).toContain(r.reason);
+  });
+
+  it('flags Exception: when accompanied by diagnostic heading words', () => {
+    const r = looksLikeErrorLeak('Exception: NullPointerException\nRoot cause analysis: Null reference encountered');
+    expect(r.leaked).toBe(true);
     expect(r.reason).toBe('exception_header');
+  });
+
+  it('does NOT flag standalone Exception: in legitimate technical interview answers', () => {
+    const r = looksLikeErrorLeak('Describe a time you handled a Java Exception: In my previous job, I caught a NullPointerException when processing empty form payloads and handled it gracefully.');
+    expect(r.leaked).toBe(false);
+    expect(r.reason).toBe('');
   });
 
   it('flags V8 stack frames (at NAME (file:line:col))', () => {

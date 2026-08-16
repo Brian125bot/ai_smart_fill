@@ -157,14 +157,14 @@ describe('FileBackedContextStore', () => {
     expect(reloaded.get('delete-user')).toBeDefined();
   });
 
-  it('deleting the canonical token prunes all aliases', () => {
+  it('deleting the canonical token prunes all aliases', async () => {
     const store = new FileBackedContextStore(TEST_DATA_DIR);
     const ctx = makeContext('canon-delete-all', { email: 'all@example.com', userId: 'all-user' });
     store.set('canon-delete-all', ctx);
     store.set('all@example.com', ctx);
     store.set('all-user', ctx);
 
-    store.delete('canon-delete-all');
+    await store.delete('canon-delete-all');
 
     expect(store.get('canon-delete-all')).toBeUndefined();
     expect(store.get('all@example.com')).toBeUndefined();
@@ -185,23 +185,23 @@ describe('FileBackedContextStore', () => {
     expect(store.get('Canon-Delete-Lower')).toBeUndefined();
   });
 
-  it("saves, reads, and deletes PDF files on disk", () => {
+  it("saves, reads, and deletes PDF files on disk", async () => {
     const store = new FileBackedContextStore(TEST_DATA_DIR);
-    const pdfPath = store.savePdf("tok-pdf-1", "data:application/pdf;base64,SGVsbG8gUERG");
+    const pdfPath = await store.savePdf("tok-pdf-1", "data:application/pdf;base64,SGVsbG8gUERG");
     expect(pdfPath).toContain("pdfs/");
 
     const fullPdfPath = path.join(TEST_DATA_DIR, pdfPath);
     expect(fs.existsSync(fullPdfPath)).toBe(true);
 
     store.set("tok-pdf-1", makeContext("tok-pdf-1", { pdfFilePath: pdfPath }));
-    const readBuf = store.readPdf("tok-pdf-1");
+    const readBuf = await store.readPdf("tok-pdf-1");
     expect(readBuf?.toString()).toBe("Hello PDF");
 
-    store.delete("tok-pdf-1");
+    await store.delete("tok-pdf-1");
     expect(fs.existsSync(fullPdfPath)).toBe(false);
   });
 
-  it("migrates legacy JSON files with pdfData to pdfFilePath on startup", () => {
+  it("migrates legacy JSON files with pdfData to pdfFilePath on startup", async () => {
     if (!fs.existsSync(TEST_DATA_DIR)) {
       fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
     }
@@ -221,7 +221,7 @@ describe('FileBackedContextStore', () => {
     expect((ctx as any).pdfData).toBeUndefined();
     expect(ctx?.pdfFilePath).toBeDefined();
 
-    const readBuf = store.readPdf("legacy-token");
+    const readBuf = await store.readPdf("legacy-token");
     expect(readBuf?.toString()).toBe("Legacy PDF Content");
 
     const rawDisk = fs.readFileSync(legacyFile, "utf-8");

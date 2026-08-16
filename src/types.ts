@@ -196,3 +196,5 @@ export const AVAILABLE_GEMINI_MODELS: GeminiModelOption[] = [
     badgeColor: "bg-slate-500/20 text-slate-300 border-slate-500/40",
   },
 ];
+
+export const FALLBACK_MODEL_CHAIN: string[] = AVAILABLE_GEMINI_MODELS.map((m) => m.id);

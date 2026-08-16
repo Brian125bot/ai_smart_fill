@@ -34,12 +34,22 @@ export function looksLikeErrorLeak(text: string): { leaked: boolean; reason: str
   if (!text || typeof text !== "string") return { leaked: false, reason: "" };
 
   // Strong single-signal rules — high precision, no corroboration needed.
-  if (EXCEPTION_HEADER_RE.test(text)) return { leaked: true, reason: "exception_header" };
   if (TRACEBACK_RE.test(text)) return { leaked: true, reason: "traceback" };
   if (STACK_FRAME_RE.test(text)) return { leaked: true, reason: "stack_frame" };
   if (FILE_PATH_RE.test(text)) return { leaked: true, reason: "file_path" };
   if (FAILED_EXECUTE_RE.test(text)) return { leaked: true, reason: "failed_execute" };
   if (ENCODING_RE.test(text)) return { leaked: true, reason: "encoding" };
+
+  // Exception headers require corroboration (file path, stack frame, traceback, or diagnostic heading)
+  if (
+    EXCEPTION_HEADER_RE.test(text) &&
+    (FILE_PATH_RE.test(text) ||
+      STACK_FRAME_RE.test(text) ||
+      TRACEBACK_RE.test(text) ||
+      DIAGNOSTIC_HEADING_WORDS.test(text))
+  ) {
+    return { leaked: true, reason: "exception_header" };
+  }
 
   // Retired literal phrasings kept as exact-phrase fallbacks so the original
   // leak shape continues to be blanked. These are specific enough to avoid

@@ -8,6 +8,7 @@ import { createContextStore, SyncedUserContext, ContextStore } from "./store";
 import { classifyField, FieldCategory, isLongForm } from "./fieldClassifier";
 import { retrieveRelevantQAs, QAEntry } from "./qaRetrieval";
 import { getContextType, looksLikeErrorLeak, logLeak } from "./errorLeak";
+import { FALLBACK_MODEL_CHAIN } from "./src/types";
 import {
   AnswerQuestionSchema,
   BatchAnswerFormSchema,
@@ -122,14 +123,9 @@ function isTransientError(err: unknown): boolean {
     errMsg.includes("UNAVAILABLE") ||
     errMsg.includes("429") ||
     errMsg.includes("RESOURCE_EXHAUSTED") ||
-    errMsg.includes("NOT_FOUND") ||
-    errMsg.includes("404") ||
-    errMsg.toLowerCase().includes("not found") ||
     errStatus === 503 ||
     errStatus === 429 ||
-    errStatus === 404 ||
-    errStatus === "UNAVAILABLE" ||
-    errStatus === "NOT_FOUND"
+    errStatus === "UNAVAILABLE"
   );
 }
 
@@ -142,12 +138,7 @@ export async function generateWithRetryAndFallback(
 ): Promise<GenerationResult> {
   const candidateModels = [
     requestedModel,
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-3.0-flash",
+    ...FALLBACK_MODEL_CHAIN,
   ].filter((val, idx, arr) => arr.indexOf(val) === idx);
 
   let lastError: unknown = null;
@@ -168,7 +159,10 @@ export async function generateWithRetryAndFallback(
         const errMsg = errorMessage(err);
 
         if (!isTransientError(err)) {
-          throw err;
+          console.warn(
+            `[Gemini] Model ${modelToTry} encountered non-transient error: ${errMsg}. Trying next fallback candidate...`
+          );
+          break;
         }
 
         console.warn(

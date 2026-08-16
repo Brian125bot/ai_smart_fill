@@ -38,10 +38,10 @@ class FailingStore implements ContextStore {
   size(): number {
     return this.cache.size;
   }
-  savePdf(token: string, base64Data: string): string {
+  async savePdf(token: string, base64Data: string): Promise<string> {
     return `pdfs/${token}.pdf`;
   }
-  readPdf(token: string): Buffer | null {
+  async readPdf(token: string): Promise<Buffer | null> {
     return null;
   }
 

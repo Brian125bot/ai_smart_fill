@@ -42,21 +42,24 @@ describe('generateWithRetryAndFallback', () => {
     expect(res.text).toBe('ok');
   });
 
-  it('throws immediately on a non-transient error (no retry)', async () => {
+  it('falls back through models on non-transient errors without retrying the same model', async () => {
     const ai = fakeAi(() => ({ error: { message: '400 INVALID_ARGUMENT: bad request' } }));
     await expect(
       generateWithRetryAndFallback(ai as any, 'gemini-3.7-flash', 'p', {}, ZERO_BACKOFF)
     ).rejects.toThrow('INVALID_ARGUMENT');
-    expect(ai.models.generateContent).toHaveBeenCalledTimes(1);
+    // 6 candidate models tried 1 time each (no retries for non-transient error)
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(6);
   });
 
-  it('falls through to the next model on NOT_FOUND (regression)', async () => {
+  it('falls through immediately to the next model on 404 / NOT_FOUND without retry delays', async () => {
     const ai = fakeAi((model) =>
       model === 'gemini-3.7-flash' ? { text: 'fell-back' } : { error: { message: '404 NOT_FOUND model' } }
     );
     const res = await generateWithRetryAndFallback(ai as any, 'gemini-custom', 'p', {}, ZERO_BACKOFF);
     expect(res.effectiveModel).toBe('gemini-3.7-flash');
     expect(res.text).toBe('fell-back');
+    // 1 call for gemini-custom (failed 404), 1 call for gemini-3.7-flash (succeeded)
+    expect(ai.models.generateContent).toHaveBeenCalledTimes(2);
   });
 
   it('throws the last error after exhausting all models', async () => {
