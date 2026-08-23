@@ -34,7 +34,7 @@ The extension uses `<all_urls>` so it can inspect and fill forms on arbitrary si
 
 CORS reflects local web origins and browser-extension origins. This limits ordinary browser reads from unrelated websites, but CORS is not authentication and does not protect a directly reachable server from non-browser clients. CORS is applied before the rate limiter so that rate-limit (`429`) responses carry the correct CORS headers.
 
-The server accepts JSON bodies up to `50mb`. Base64 PDF data increases payload size and remains in browser, process, and request memory during processing.
+The server accepts JSON bodies up to `50mb`. When a PDF is synced, it is stored as a binary file on disk (data/pdfs/) and loaded on-demand per request; base64 payloads are decoded once on write and not retained afterward.
 
 ## Model and Answer Safety
 

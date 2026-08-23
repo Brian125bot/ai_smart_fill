@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.5
+
+**PDF storage decoupling, async gap closures, and generation/error-leak hardening**
+
+- **PDF storage decoupling (commits 853afda, 304f714):** Synced PDFs are no longer stored as base64 in the JSON context. `SyncedUserContext` now uses `pdfFilePath` (with `pdfData` retained as `@deprecated` for legacy migration). `FileBackedContextStore` persists PDFs as binary files in `data/pdfs/` (hashed filename per pairing token via `pdfFilename()`) and loads them just-in-time per request via `readPdf(): Promise<Buffer | null>`. `POST /api/syncProfile` decodes base64 once via `savePdf(): Promise<string | null>` (stripping `data:...;base64,` prefixes, atomic `tmp-${pid}-${Date.now()}` + rename) and stores only the relative path; base64 payloads are not retained afterward. Startup migration converts any legacy JSON files containing inline `pdfData` to disk files and backfills `pdfFilePath`. `POST /api/purgeContext` deletes the associated PDF file alongside the JSON (gracefully handling `ENOENT`). `GET /api/userContext` and generation routes hydrate PDFs via `readPdf` on demand, falling back to legacy `pdfData` only when the file is absent and warning when a referenced file is missing.
+
+- **Async gap closures (commit dadfe8d):** Made `ContextStore` async (`set`/`delete`/`savePdf`/`readPdf` return `Promise`), added `ensureDirs()`/`ensureDirsAsync()` to guarantee `data/` and `data/pdfs/` exist, and centralized cache-hydration + PDF loading in `server.ts:resolveGenerationContext()` to de-duplicate `POST /answerQuestion` and `POST /batchAnswerForm`. `syncProfile` and `purgeContext` are now `async` handlers that surface `500` when the PDF write or JSON delete fails. Atomic writes use `tmp-${pid}-${Date.now()}` suffixes. Added `pdfFilePath` handling in `src/validation.ts` and `src/types.ts` alongside the deprecated `pdfData` field.
+
+- **Retry/fallback logic fix (commit 4f50072):** `isTransientError` now excludes `404`/`NOT_FOUND`/`not found` (previously treated as transient), so non-transient model failures fail fast on attempt 1 and immediately try the next fallback candidate without retry backoff delays. Derived `FALLBACK_MODEL_CHAIN` directly from `AVAILABLE_GEMINI_MODELS` in `src/types.ts` (`AVAILABLE_GEMINI_MODELS.map(m => m.id)`) to prevent model drift. Changed `generateWithRetryAndFallback` non-transient path to `break` to the next candidate with a warning instead of throwing. `errorLeak.ts`: `EXCEPTION_HEADER_RE` now requires corroborating structural signals — `FILE_PATH_RE` / `STACK_FRAME_RE` / `TRACEBACK_RE` / `DIAGNOSTIC_HEADING_WORDS` (file path / stack frame / traceback / diagnostic heading) — to prevent false positive censorship on legitimate technical answers (e.g., `Exception:` in STAR-format interview content); `TRACEBACK_RE`, `STACK_FRAME_RE`, `FILE_PATH_RE`, `FAILED_EXECUTE_RE`, and `ENCODING_RE` remain strong single-signal rules.
+
+- **Tests:** Added `tests/server/store.test.ts` coverage for the async store, `tests/server/answerQuestion.test.ts` and `tests/server/batchAnswerForm.test.ts` cases for PDF just-in-time loading and graceful missing-file degradation, and updated `tests/errorLeak.test.ts`, `tests/server/fallback.test.ts`, `tests/server/persistenceFailure.test.ts`, and `tests/store.test.ts` for the async interfaces, fallback chain derivation, and leak corroboration.
+
 ## 1.0.4
 
 **Quality hardening: validation, persistence safety, rate limiting, and test coverage**

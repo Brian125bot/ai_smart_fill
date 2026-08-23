@@ -91,7 +91,7 @@ The server binds to `127.0.0.1` unless `HOST` is set. The port is currently fixe
 | ------------------- | ------------------------- | -------------------------------------------------------------------- | ---------------------------------- |
 | Selected model      | `localStorage`            | Request/cache value                                                  | `chrome.storage.local`             |
 | Persona profiles    | `localStorage`            | In-memory synced copy                                                | `chrome.storage.local`             |
-| PDF data            | `localStorage` when saved | In-memory base64 copy                                                | `chrome.storage.local` when synced |
+| PDF data | `localStorage` when saved | Binary files in data/pdfs/, loaded just-in-time per request | `chrome.storage.local` when synced |
 | API key             | Never                     | `GEMINI_API_KEY` environment variable                                | Never                              |
 | Pairing value       | Fixed local value         | Map key                                                              | `chrome.storage.local`             |
 | Error-leak detector | N/A                       | `errorLeak.ts` (structurally flags leaked exception text in answers) | Applied to all generation output   |
