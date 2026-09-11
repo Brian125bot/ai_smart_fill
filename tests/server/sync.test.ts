@@ -12,6 +12,18 @@ describe('POST /api/syncProfile', () => {
     const res = await request(app).post('/api/syncProfile').send({});
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+    expect(res.body.error).toContain("Invalid sync profile payload.");
+  });
+
+  it('rejects invalid fields with 400', async () => {
+    const res = await request(app).post('/api/syncProfile').send({
+      pairingToken: 'tok',
+      profileFields: {
+        customQAs: [{ id: '1', question: 123, answer: 'a' }]
+      }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("Invalid sync profile payload.");
   });
 
   it('stores context under the pairing token and returns a summary', async () => {
