@@ -25,6 +25,36 @@ describe("Rate limiting", () => {
     expect(res.headers["ratelimit-remaining"]).toBeDefined();
   });
 
+
+  it("returns 429 on /batchAnswerForm after exceeding the AI limit", async () => {
+    const ai = makeFakeAi(() => ({ text: "ok" }));
+    const app = await makeApp(ai);
+
+    for (let i = 0; i < 30; i++) {
+      await request(app).post("/batchAnswerForm").send({ fields: [] });
+    }
+
+    const res = await request(app).post("/batchAnswerForm").send({ fields: [] });
+    expect(res.status).toBe(429);
+    expect(res.headers["ratelimit-limit"]).toBeDefined();
+    expect(res.headers["retry-after"]).toBeDefined();
+    expect(res.headers["ratelimit-remaining"]).toBeDefined();
+    expect(res.body.error).toContain("Too many AI generation requests. Please slow down.");
+  });
+
+
+  it("includes rate limit headers on 500 error responses from /answerQuestion", async () => {
+    const ai = makeFakeAi(() => {
+      throw new Error("Internal fail");
+    });
+    const app = await makeApp(ai);
+
+    const res = await request(app).post("/answerQuestion").send({ question: "Q?" });
+    expect(res.status).toBe(500);
+    expect(res.headers["ratelimit-limit"]).toBeDefined();
+    expect(res.headers["ratelimit-remaining"]).toBeDefined();
+  });
+
   it("returns 429 on /answerQuestion after exceeding the AI limit", async () => {
     const ai = makeFakeAi(() => ({ text: "ok" }));
     const app = await makeApp(ai);
