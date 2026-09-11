@@ -148,6 +148,27 @@ describe('POST /batchAnswerForm', () => {
     expect(typeof captured.contents).toBe('string');
   });
 
+  it('rejects a missing fields array with 400', async () => {
+    const app = await makeApp();
+    const missing = await request(app).post('/batchAnswerForm').send({});
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toContain("Bad Request: invalid payload.");
+  });
+
+  it('rejects an empty fields array with 400', async () => {
+    const app = await makeApp();
+    const empty = await request(app).post('/batchAnswerForm').send({ fields: [] });
+    expect(empty.status).toBe(400);
+    expect(empty.body.error).toContain("Bad Request: invalid payload.");
+  });
+
+  it('rejects unknown fields in payload with 400', async () => {
+    const app = await makeApp();
+    const extra = await request(app).post('/batchAnswerForm').send({ fields: FIELDS, unexpectedKey: 1 });
+    expect(extra.status).toBe(400);
+    expect(extra.body.error).toContain("Bad Request: invalid payload.");
+  });
+
   it('classifies fields and routes long-form to dedicated prompts', async () => {
     const callLog: string[] = [];
     const ai = makeFakeAi((args) => {

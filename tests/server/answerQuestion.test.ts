@@ -7,9 +7,17 @@ describe('POST /answerQuestion', () => {
     const app = await makeApp();
     const missing = await request(app).post('/answerQuestion').send({});
     expect(missing.status).toBe(400);
+    expect(missing.body.error).toContain("Bad Request: invalid payload.");
 
     const blank = await request(app).post('/answerQuestion').send({ question: '   ' });
     expect(blank.status).toBe(400);
+  });
+
+  it('rejects invalid fields in payload with 400', async () => {
+    const app = await makeApp();
+    const invalidPayload = await request(app).post('/answerQuestion').send({ question: 'test', invalidField: true });
+    expect(invalidPayload.status).toBe(400);
+    expect(invalidPayload.body.error).toContain("Bad Request: invalid payload.");
   });
 
   it('returns an answer and the effective model', async () => {
