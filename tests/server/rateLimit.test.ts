@@ -20,6 +20,9 @@ describe("Rate limiting", () => {
 
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(429);
+    expect(res.headers["ratelimit-limit"]).toBeDefined();
+    expect(res.headers["retry-after"]).toBeDefined();
+    expect(res.headers["ratelimit-remaining"]).toBeDefined();
   });
 
   it("returns 429 on /answerQuestion after exceeding the AI limit", async () => {
@@ -32,5 +35,8 @@ describe("Rate limiting", () => {
 
     const res = await request(app).post("/answerQuestion").send({ question: "Q?" });
     expect(res.status).toBe(429);
+    expect(res.headers["ratelimit-limit"]).toBeDefined();
+    expect(res.headers["retry-after"]).toBeDefined();
+    expect(res.headers["ratelimit-remaining"]).toBeDefined();
   });
 });
