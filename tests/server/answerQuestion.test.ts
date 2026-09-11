@@ -153,6 +153,22 @@ describe('POST /answerQuestion', () => {
     expect(res.body.answer).toBe('');
   });
 
+  it('strips internal stack traces and error messages from responses (error leak sanitization)', async () => {
+    const leakText = `TypeError: Cannot read properties of undefined (reading 'split')\n    at splitString (/app/src/utils.js:42:15)`;
+    const ai = makeFakeAi(() => ({ text: leakText }));
+    const app = await makeApp(ai);
+
+    const res = await request(app)
+      .post('/answerQuestion')
+      .send({ question: 'What is the full name?' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.answer).toBe('');
+    expect(res.body.withheld).toBe(true);
+    expect(res.body.answer).not.toContain('TypeError');
+    expect(res.body.answer).not.toContain('/app/src/utils.js');
+  });
+
   it('returns a 500 status code when an internal error is thrown', async () => {
     const ai = makeFakeAi(() => {
       throw new Error('Internal failure');
