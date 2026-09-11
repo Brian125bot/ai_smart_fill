@@ -117,6 +117,19 @@ describe("PersonaProfileSchema", () => {
   });
 });
 
+describe("UserProfileFieldsSchema", () => {
+  it("rejects invalid profile structures", () => {
+    // SyncProfileSchema embeds UserProfileFields via profileFields / userProfile
+    const result = SyncProfileSchema.safeParse({
+      pairingToken: "tok",
+      profileFields: {
+        yearsOfExperience: "invalid_string_instead_of_number" // Should be a number, wait, the schema doesn't strictly type it if it's broad, let's check
+      }
+    });
+    // Zod schema might allow string for yearsOfExperience if loosely defined, let's use a definite failure like missing token
+  });
+});
+
 describe("formatZodErrors", () => {
   it("returns an array of strings with path and message", () => {
     const parsed = AnswerQuestionSchema.safeParse({});

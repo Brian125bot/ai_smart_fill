@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { classifyField } from '../fieldClassifier';
+import { classifyField, isLongForm } from '../fieldClassifier';
 
 describe('classifyField', () => {
+  it('handles empty or malformed inputs', () => {
+    // Tests are allowed to pass undefined/null since types could be subverted
+    expect(classifyField({} as any)).toBe('short_text');
+    expect(classifyField({ type: undefined, tagName: undefined } as any)).toBe('short_text');
+  });
+
   it('classifies email type fields as email', () => {
     expect(classifyField({ type: 'email' })).toBe('email');
     expect(classifyField({ question: 'What is your email?' })).toBe('email');
@@ -88,5 +94,16 @@ describe('classifyField', () => {
     expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Coupon code' })).toBe('short_text');
     expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Describe your experience' })).toBe('long_form');
     expect(classifyField({ tagName: 'textarea', maxLength: undefined, rows: 6, question: 'Experience' })).toBe('long_form');
+  });
+});
+
+describe('isLongForm', () => {
+  it('returns true only for long_form', () => {
+    expect(isLongForm('long_form')).toBe(true);
+    expect(isLongForm('short_text')).toBe(false);
+    expect(isLongForm('email')).toBe(false);
+    expect(isLongForm('numeric')).toBe(false);
+    expect(isLongForm('phone')).toBe(false);
+    expect(isLongForm('select')).toBe(false);
   });
 });
