@@ -68,3 +68,12 @@ describe('retrieveRelevantQAs', () => {
     expect(result.length).toBe(0);
   });
 });
+
+describe('Edge cases and malformed inputs', () => {
+  it('returns empty when questions in QAs are empty', () => {
+    expect(retrieveRelevantQAs('experience', [{ question: '', answer: 'empty' }])).toEqual([]);
+  });
+  it('returns empty when question is made only of stop words', () => {
+    expect(retrieveRelevantQAs('the is at', [{ question: 'What is your experience?', answer: '5 years' }])).toEqual([]);
+  });
+});

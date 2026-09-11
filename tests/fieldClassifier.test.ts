@@ -107,3 +107,12 @@ describe('isLongForm', () => {
     expect(isLongForm('select')).toBe(false);
   });
 });
+
+describe('Edge cases and malformed inputs', () => {
+  it('handles extremely long inputs gracefully', () => {
+    expect(classifyField({ question: 'a'.repeat(10000) })).toBe('long_form');
+  });
+  it('handles empty options array', () => {
+    expect(classifyField({ tagName: 'select', options: [] })).toBe('select');
+  });
+});
