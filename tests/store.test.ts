@@ -248,3 +248,12 @@ describe('FileBackedContextStore', () => {
     expect(parsedDisk.pdfFilePath).toBeDefined();
   });
 });
+
+describe('Edge cases and malformed inputs', () => {
+  it('handles empty string token gracefully in set/get', () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    store.set('', { pairingToken: '', updatedAt: new Date().toISOString() });
+    expect(store.has('')).toBe(true);
+    expect(store.get('')).toBeDefined();
+  });
+});
