@@ -152,4 +152,14 @@ describe('POST /answerQuestion', () => {
     expect(res.status).toBe(200);
     expect(res.body.answer).toBe('');
   });
+
+  it('returns a 500 status code when an internal error is thrown', async () => {
+    const ai = makeFakeAi(() => {
+      throw new Error('Internal failure');
+    });
+    const app = await makeApp(ai);
+    const res = await request(app).post('/answerQuestion').send({ question: 'Q?' });
+    expect(res.status).toBe(500);
+    expect(res.body.error).toContain('Internal failure');
+  });
 });

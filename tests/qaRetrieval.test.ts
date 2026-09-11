@@ -19,6 +19,12 @@ describe('tokenize', () => {
     expect(tokens).not.toContain('hello-world!');
     expect(tokens).toContain('hello');
   });
+
+  it('handles null, undefined, or empty strings safely', () => {
+    expect(tokenize('')).toEqual([]);
+    expect(tokenize(null as any)).toEqual([]);
+    expect(tokenize(undefined as any)).toEqual([]);
+  });
 });
 
 describe('retrieveRelevantQAs', () => {
@@ -32,6 +38,8 @@ describe('retrieveRelevantQAs', () => {
 
   it('returns empty for empty Q&A bank', () => {
     expect(retrieveRelevantQAs('test', [])).toEqual([]);
+    expect(retrieveRelevantQAs('test', null as any)).toEqual([]);
+    expect(retrieveRelevantQAs('test', undefined as any)).toEqual([]);
   });
 
   it('returns empty for empty question', () => {

@@ -201,6 +201,24 @@ describe('FileBackedContextStore', () => {
     expect(fs.existsSync(fullPdfPath)).toBe(false);
   });
 
+  it("handles corrupted JSON files gracefully during load", () => {
+    fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
+    fs.writeFileSync(path.join(TEST_DATA_DIR, "corrupt_123.json"), "{ invalid_json: ");
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    expect(store.size()).toBe(0);
+  });
+
+  it("returns false if JSON write fails", () => {
+    const store = new FileBackedContextStore(TEST_DATA_DIR);
+    const originalWrite = fs.writeFileSync;
+    fs.writeFileSync = () => { throw new Error("Disk full"); };
+
+    const result = store.set('fail-write', makeContext('fail-write'));
+    expect(result).toBe(false);
+
+    fs.writeFileSync = originalWrite;
+  });
+
   it("migrates legacy JSON files with pdfData to pdfFilePath on startup", async () => {
     if (!fs.existsSync(TEST_DATA_DIR)) {
       fs.mkdirSync(TEST_DATA_DIR, { recursive: true });
